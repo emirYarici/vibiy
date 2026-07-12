@@ -11,10 +11,15 @@ import {
   Alert,
   SafeAreaView,
   Linking,
+  PermissionsAndroid,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Geolocation from 'react-native-geolocation-service';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
 import { COLORS, RADIUS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
 
@@ -23,11 +28,16 @@ import ProfilePage from '../pages/ProfilePage';
 import MatchesPage from '../pages/MatchesPage';
 import SharePage from '../pages/SharePage';
 import TabBar from '../components/TabBar';
+import ProfileOnboarding from '../pages/ProfileOnboarding';
+import ProfileDetailsPage from '../pages/ProfileDetailsPage';
+
+const Stack = createNativeStackNavigator();
 
 export default function AppContainer() {
   const [session, setSession] = useState<any>(null);
   const [isDemoMode, setIsDemoMode] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isProfileComplete, setIsProfileComplete] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'matches' | 'share'>('matches');
   const [sharedUrlFromLink, setSharedUrlFromLink] = useState<string | null>(null);
   const [shareHistory, setShareHistory] = useState<ShareHistoryItem[]>([]);
@@ -46,6 +56,95 @@ export default function AppContainer() {
     };
     loadHistory();
   }, []);
+
+  // Request notifications permission and fetch FCM token on mount / login
+  useEffect(() => {
+    if (!session) return;
+
+    const requestPermissionAndToken = async () => {
+      try {
+        const {
+          getMessaging,
+          requestPermission,
+          AuthorizationStatus,
+          getToken,
+          registerDeviceForRemoteMessages,
+        } = require('@react-native-firebase/messaging');
+        const messagingInstance = getMessaging();
+        
+        // Request Permission
+        const authStatus = await requestPermission(messagingInstance);
+        const enabled =
+          authStatus === AuthorizationStatus.AUTHORIZED ||
+          authStatus === AuthorizationStatus.PROVISIONAL;
+
+        if (enabled) {
+          console.log('FCM Notification permission granted. Status:', authStatus);
+          
+          // Register device for remote messages on iOS
+          if (Platform.OS === 'ios') {
+            await registerDeviceForRemoteMessages(messagingInstance);
+          }
+
+          // Fetch token
+          const token = await getToken(messagingInstance);
+          console.log('FCM Device Token:', token);
+          
+          // Optionally save token to Supabase profiles
+          if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
+            const { error } = await supabase
+              .from('profiles')
+              .update({ fcm_token: token })
+              .eq('id', session.user.id);
+              
+            if (error) {
+              console.error('Failed to save FCM token to Supabase:', error.message);
+            } else {
+              console.log('Successfully saved FCM token to Supabase profiles!');
+            }
+          }
+        } else {
+          console.log('FCM Notification permission denied.');
+        }
+      } catch (err: any) {
+        const errMsg = err?.message || '';
+        if (
+          errMsg.includes('aps-environment') ||
+          errMsg.includes('apns') ||
+          err?.code === 'messaging/unknown' ||
+          err?.code === 'messaging/unregistered'
+        ) {
+          console.warn(
+            'FCM Setup Warning: Push notifications are not configured for this app in Xcode/Developer portal. ' +
+            'Please enable "Push Notifications" in Xcode -> Signing & Capabilities.'
+          );
+        } else {
+          console.error('Error during FCM setup:', err);
+        }
+      }
+    };
+
+    requestPermissionAndToken();
+
+    // Listen to incoming messages in the foreground safely
+    let unsubscribe = () => {};
+    try {
+      const { getMessaging, onMessage } = require('@react-native-firebase/messaging');
+      const messagingInstance = getMessaging();
+      unsubscribe = onMessage(messagingInstance, async (remoteMessage: any) => {
+        Alert.alert(
+          remoteMessage.notification?.title || 'Notification Received',
+          remoteMessage.notification?.body || 'You have a new message.'
+        );
+      });
+    } catch (err) {
+      console.warn('FCM foreground listener skipped (Firebase not initialized).');
+    }
+
+    return () => {
+      unsubscribe();
+    };
+  }, [session, isDemoMode]);
 
   // Fetch user's shared video history from Supabase on session change
   useEffect(() => {
@@ -196,6 +295,133 @@ export default function AppContainer() {
     };
   }, [isDemoMode]);
 
+  // Check profile completeness when session changes
+  useEffect(() => {
+    const checkProfileStatus = async () => {
+      if (!session) {
+        setIsProfileComplete(null);
+        return;
+      }
+
+      try {
+        if (isDemoMode) {
+          const cachedName = await AsyncStorage.getItem('@profile_name');
+          const cachedPhotos = await AsyncStorage.getItem('@profile_photos');
+          const cachedGender = await AsyncStorage.getItem('@profile_gender');
+          const cachedPreference = await AsyncStorage.getItem('@profile_preference');
+          const cachedLat = await AsyncStorage.getItem('@profile_latitude');
+          const photoArray = cachedPhotos ? JSON.parse(cachedPhotos) : [];
+          
+          const complete = !!(cachedName && photoArray[0] && cachedGender && cachedPreference && cachedLat);
+          setIsProfileComplete(complete);
+        } else if (isSupabaseConfigured) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('full_name, photos, gender, preference, location')
+            .eq('id', session.user.id)
+            .single();
+
+          if (error && error.code === 'PGRST116') {
+            // No profile row exists
+            setIsProfileComplete(false);
+          } else if (data) {
+            const hasName = !!data.full_name;
+            const hasPhoto = !!(data.photos && data.photos.length > 0 && data.photos[0]);
+            const hasGender = !!data.gender;
+            const hasPreference = !!data.preference;
+            const hasLocation = !!data.location;
+            setIsProfileComplete(hasName && hasPhoto && hasGender && hasPreference && hasLocation);
+          } else {
+            setIsProfileComplete(false);
+          }
+        } else {
+          setIsProfileComplete(true);
+        }
+      } catch (err) {
+        console.error('Failed to check profile status:', err);
+        setIsProfileComplete(true); // Fallback to avoid blocking on check error
+      }
+    };
+
+    checkProfileStatus();
+  }, [session, isDemoMode]);
+
+  // Auto-fetch/update location on app mount
+  useEffect(() => {
+    const requestLocationPermission = async () => {
+      if (Platform.OS === 'ios') {
+        try {
+          const auth = await Geolocation.requestAuthorization('whenInUse');
+          return auth === 'granted';
+        } catch (err) {
+          return false;
+        }
+      }
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission',
+            message: 'Vibiy needs access to your location to find matches near you.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        return false;
+      }
+    };
+
+    const fetchAndSaveLocation = async () => {
+      const hasPermission = await requestLocationPermission();
+      if (!hasPermission) return;
+
+      Geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          
+          // Cache locally
+          await AsyncStorage.setItem('@profile_latitude', String(lat));
+          await AsyncStorage.setItem('@profile_longitude', String(lng));
+
+          // Save to Supabase if session exists
+          try {
+            const currentSessionStr = await AsyncStorage.getItem('@supabase_session');
+            const currentSession = currentSessionStr ? JSON.parse(currentSessionStr) : null;
+            const guestSession = await AsyncStorage.getItem('@guest_session');
+            const isDemo = guestSession === 'true';
+
+            if (!isDemo && isSupabaseConfigured && currentSession?.user?.id) {
+              await supabase
+                .from('profiles')
+                .update({
+                  location: `POINT(${lng} ${lat})`
+                })
+                .eq('id', currentSession.user.id);
+            }
+          } catch (err) {
+            console.error('Failed to auto-update location in Supabase:', err);
+          }
+        },
+        (error) => {
+          console.log('Auto geolocation error on App mount:', error);
+          AsyncStorage.getItem('@guest_session').then((guestSession) => {
+            if (guestSession === 'true') {
+              AsyncStorage.setItem('@profile_latitude', '39.9334');
+              AsyncStorage.setItem('@profile_longitude', '32.8597');
+            }
+          });
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      );
+    };
+
+    fetchAndSaveLocation();
+  }, []);
+
   const handleLoginSuccess = async (userSession: any, isDemo: boolean = false) => {
     if (isDemo) {
       await AsyncStorage.setItem('@guest_session', 'true');
@@ -209,6 +435,7 @@ export default function AppContainer() {
       setLoading(true);
       await AsyncStorage.removeItem('@guest_session');
       setIsDemoMode(false);
+      setIsProfileComplete(null);
       if (isSupabaseConfigured) {
         await supabase.auth.signOut();
       }
@@ -256,12 +483,29 @@ export default function AppContainer() {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
-  const renderContent = () => {
+  // Show onboarding wizard if profile is incomplete
+  if (isProfileComplete === false) {
+    return (
+      <ProfileOnboarding
+        session={session}
+        isDemoMode={isDemoMode}
+        onOnboardingComplete={() => setIsProfileComplete(true)}
+      />
+    );
+  }
+
+  const renderContent = (navigation: any) => {
     switch (activeTab) {
       case 'profile':
-        return <ProfilePage session={session} onLogout={handleLogout} />;
+        return <ProfilePage session={session} onLogout={handleLogout} isDemoMode={isDemoMode} />;
       case 'matches':
-        return <MatchesPage userPhoto={null} />;
+        return (
+          <MatchesPage
+            session={session}
+            isDemoMode={isDemoMode}
+            navigation={navigation}
+          />
+        );
       case 'share':
         return (
           <SharePage
@@ -276,24 +520,35 @@ export default function AppContainer() {
   };
 
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.flexContainer}
-      >
-        {/* Screen Layout */}
-        <View style={styles.mainLayoutContent}>
-          {/* Upper Brand Info - Minimal Text Only */}
-          <Text style={styles.minimalBrandTitle}>vibiy</Text>
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Dashboard">
+          {(props) => (
+            <View style={styles.container}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={styles.flexContainer}
+              >
+                {/* Screen Layout */}
+                <View style={styles.mainLayoutContent}>
+                  {/* Upper Brand Info - Minimal Text Only */}
+                  <Text style={styles.minimalBrandTitle}>vibiy</Text>
 
-          {/* Content Body */}
-          <View style={styles.screenBody}>{renderContent()}</View>
+                  {/* Content Body */}
+                  <View style={styles.screenBody}>
+                    {renderContent(props.navigation)}
+                  </View>
 
-          {/* Floating Bottom Tab Bar */}
-          <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
-        </View>
-      </KeyboardAvoidingView>
-    </View>
+                  {/* Floating Bottom Tab Bar */}
+                  <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
+                </View>
+              </KeyboardAvoidingView>
+            </View>
+          )}
+        </Stack.Screen>
+        <Stack.Screen name="ProfileDetails" component={ProfileDetailsPage} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 

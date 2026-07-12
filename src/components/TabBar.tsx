@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View, Platform } from 'react-native';
-import { Home, Heart, MessageCircle, Folder } from 'lucide-react-native';
+import { Home, Heart, User } from 'lucide-react-native';
 
 const ACTIVE_BLUE = '#F54E00'; // PostHog Orange
 const ICON_INACTIVE = '#4D4F46'; // Olive Ink
@@ -12,33 +12,23 @@ interface TabBarProps {
 
 export default function TabBar({ activeTab, setActiveTab }: TabBarProps) {
   const tabs = [
-    { key: 'home', icon: Home, appTab: 'share' as const },
-    { key: 'favorites', icon: Heart, appTab: 'matches' as const },
-    { key: 'chat', icon: MessageCircle, appTab: 'profile' as const },
-    { key: 'files', icon: Folder, appTab: 'profile' as const },
+    { key: 'share' as const, icon: Home },
+    { key: 'matches' as const, icon: Heart },
+    { key: 'profile' as const, icon: User },
   ];
-
-  // Map parent activeTab to local keys
-  const getActiveKey = () => {
-    if (activeTab === 'share') return 'home';
-    if (activeTab === 'matches') return 'favorites';
-    return 'chat'; // default to chat for profile tab mapping
-  };
-
-  const activeKey = getActiveKey();
 
   return (
     <View style={styles.outerBackground}>
       <View style={styles.shadowWrapper}>
         <View style={styles.pill}>
           {tabs.map((tab) => {
-            const isActive = activeKey === tab.key;
+            const isActive = activeTab === tab.key;
             const Icon = tab.icon;
 
             return (
               <TouchableOpacity
                 key={tab.key}
-                onPress={() => setActiveTab(tab.appTab)}
+                onPress={() => setActiveTab(tab.key)}
                 style={styles.tabTouchable}
                 activeOpacity={0.7}
               >
@@ -75,7 +65,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    zIndex: 100,
   },
   shadowWrapper: {
     // PostHog uses borders rather than shadows for depth

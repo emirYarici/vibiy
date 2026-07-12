@@ -9,18 +9,26 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  PermissionsAndroid,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { MapPin } from 'lucide-react-native';
+import Geolocation from 'react-native-geolocation-service';
 
-import { uploadProfilePhoto } from '../shared/api/supabase';
+import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS } from '../shared/theme';
 import { MainAppProps } from '../shared/types';
 
-export default function ProfilePage({ session, onLogout }: MainAppProps) {
+export default function ProfilePage({ session, onLogout, isDemoMode = false }: MainAppProps) {
   const [userName, setUserName] = useState('');
   const [userBio, setUserBio] = useState('');
   const [userAge, setUserAge] = useState('');
+  const [userGender, setUserGender] = useState<'man' | 'woman' | 'non_binary' | null>(null);
+  const [userPreference, setUserPreference] = useState<'men' | 'women' | 'everyone' | null>(null);
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
   const [profilePhotos, setProfilePhotos] = useState<(string | null)[]>([null, null, null, null, null, null]);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
 
@@ -31,11 +39,40 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
         const cachedName = await AsyncStorage.getItem('@profile_name');
         const cachedBio = await AsyncStorage.getItem('@profile_bio');
         const cachedAge = await AsyncStorage.getItem('@profile_age');
+        const cachedGender = await AsyncStorage.getItem('@profile_gender');
+        const cachedPreference = await AsyncStorage.getItem('@profile_preference');
+        const cachedLat = await AsyncStorage.getItem('@profile_latitude');
+        const cachedLng = await AsyncStorage.getItem('@profile_longitude');
         const cachedPhotos = await AsyncStorage.getItem('@profile_photos');
 
         if (cachedName) setUserName(cachedName);
         if (cachedBio) setUserBio(cachedBio);
         if (cachedAge) setUserAge(cachedAge);
+        if (cachedGender) setUserGender(cachedGender as any);
+        if (cachedPreference) setUserPreference(cachedPreference as any);
+        if (cachedLat) setLatitude(Number(cachedLat));
+        if (cachedLng) setLongitude(Number(cachedLng));
+
+        if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
+          // Sync live PostGIS location data
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('location')
+            .eq('id', session.user.id)
+            .single();
+
+          if (data && data.location) {
+            if (typeof data.location === 'object' && data.location.coordinates) {
+              const lng = data.location.coordinates[0];
+              const lat = data.location.coordinates[1];
+              setLatitude(lat);
+              setLongitude(lng);
+              await AsyncStorage.setItem('@profile_latitude', String(lat));
+              await AsyncStorage.setItem('@profile_longitude', String(lng));
+            }
+          }
+        }
+
         if (cachedPhotos) {
           setProfilePhotos(JSON.parse(cachedPhotos));
         } else {
@@ -56,25 +93,61 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
     };
 
     loadProfileData();
-  }, []);
+  }, [session, isDemoMode]);
 
-  const saveProfileData = async (name: string, bio: string, age: string, photosList: (string | null)[]) => {
+  const saveProfileData = async (
+    name: string,
+    bio: string,
+    age: string,
+    genderVal: 'man' | 'woman' | 'non_binary' | null,
+    preferenceVal: 'men' | 'women' | 'everyone' | null,
+    latVal: number | null,
+    lngVal: number | null,
+    photosList: (string | null)[]
+  ) => {
     try {
       await AsyncStorage.setItem('@profile_name', name);
       await AsyncStorage.setItem('@profile_bio', bio);
       await AsyncStorage.setItem('@profile_age', age);
+      await AsyncStorage.setItem('@profile_gender', genderVal || '');
+      await AsyncStorage.setItem('@profile_preference', preferenceVal || '');
+      await AsyncStorage.setItem('@profile_latitude', latVal ? String(latVal) : '');
+      await AsyncStorage.setItem('@profile_longitude', lngVal ? String(lngVal) : '');
       await AsyncStorage.setItem('@profile_photos', JSON.stringify(photosList));
+
+      if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
+        const parsedAge = parseInt(age.trim());
+        const filteredPhotos = photosList.filter((p): p is string => p !== null);
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            full_name: name.trim(),
+            bio: bio.trim(),
+            age: isNaN(parsedAge) ? null : parsedAge,
+            gender: genderVal,
+            preference: preferenceVal,
+            location: latVal && lngVal ? `POINT(${lngVal} ${latVal})` : null,
+            photos: filteredPhotos,
+          })
+          .eq('id', session.user.id);
+
+        if (error) {
+          console.error('Failed to update profiles table:', error.message);
+        }
+      }
     } catch (err) {
       console.error('Failed to save profile cache:', err);
     }
   };
+
+
 
   const handlePhotoSelect = async (index: number) => {
     try {
       const result = await launchImageLibrary({
         mediaType: 'photo',
         quality: 0.8,
-        includeBase64: false,
+        includeBase64: true,
       });
 
       if (result.didCancel || !result.assets || result.assets.length === 0) {
@@ -87,16 +160,20 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
       setUploadingIndex(index);
 
       // Perform upload
+      if (!selectedAsset.base64) {
+        throw new Error('No base64 data returned from image picker.');
+      }
+
       const returnedUrl = await uploadProfilePhoto(
-        session.user.id,
-        selectedAsset.uri,
+        session?.user?.id || 'demo-user',
+        selectedAsset.base64,
         selectedAsset.type || 'image/jpeg'
       );
 
       const updatedPhotos = [...profilePhotos];
       updatedPhotos[index] = returnedUrl;
       setProfilePhotos(updatedPhotos);
-      await saveProfileData(userName, userBio, userAge, updatedPhotos);
+      await saveProfileData(userName, userBio, userAge, userGender, userPreference, latitude, longitude, updatedPhotos);
 
       Alert.alert('Upload Successful', `Photo slot ${index + 1} updated successfully!`);
     } catch (err: any) {
@@ -116,7 +193,7 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
           const updatedPhotos = [...profilePhotos];
           updatedPhotos[index] = null;
           setProfilePhotos(updatedPhotos);
-          await saveProfileData(userName, userBio, userAge, updatedPhotos);
+          await saveProfileData(userName, userBio, userAge, userGender, userPreference, latitude, longitude, updatedPhotos);
         },
       },
     ]);
@@ -190,7 +267,7 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
             value={userName}
             onChangeText={(text) => {
               setUserName(text);
-              saveProfileData(text, userBio, userAge, profilePhotos);
+              saveProfileData(text, userBio, userAge, userGender, userPreference, latitude, longitude, profilePhotos);
             }}
           />
         </View>
@@ -206,7 +283,7 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
               value={userAge}
               onChangeText={(text) => {
                 setUserAge(text);
-                saveProfileData(userName, userBio, text, profilePhotos);
+                saveProfileData(userName, userBio, text, userGender, userPreference, latitude, longitude, profilePhotos);
               }}
             />
           </View>
@@ -217,6 +294,69 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
                 {session.user.email}
               </Text>
             </View>
+          </View>
+        </View>
+
+        {/* Gender Selection */}
+        <View style={styles.formInputGroup}>
+          <Text style={styles.formLabel}>Gender</Text>
+          <View style={styles.pillContainer}>
+            {(['man', 'woman', 'non_binary'] as const).map((g) => {
+              const label = g === 'man' ? 'Man' : g === 'woman' ? 'Woman' : 'Non-binary';
+              const isSelected = userGender === g;
+              return (
+                <TouchableOpacity
+                  key={g}
+                  style={[styles.pillButton, isSelected && styles.pillButtonActive]}
+                  onPress={() => {
+                    setUserGender(g);
+                    saveProfileData(userName, userBio, userAge, g, userPreference, latitude, longitude, profilePhotos);
+                  }}
+                >
+                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Preference Selection */}
+        <View style={styles.formInputGroup}>
+          <Text style={styles.formLabel}>Show Me</Text>
+          <View style={styles.pillContainer}>
+            {(['men', 'women', 'everyone'] as const).map((p) => {
+              const label = p === 'men' ? 'Men' : p === 'women' ? 'Women' : 'Everyone';
+              const isSelected = userPreference === p;
+              return (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.pillButton, isSelected && styles.pillButtonActive]}
+                  onPress={() => {
+                    setUserPreference(p);
+                    saveProfileData(userName, userBio, userAge, userGender, p, latitude, longitude, profilePhotos);
+                  }}
+                >
+                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Geolocation Section */}
+        <View style={styles.formInputGroup}>
+          <Text style={styles.formLabel}>My Location</Text>
+          <View style={[styles.formInput, styles.disabledInput, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+            <MapPin size={16} color={COLORS.textMuted} />
+            <Text style={styles.disabledInputText}>
+              {latitude && longitude
+                ? `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`
+                : 'Location not set'}
+            </Text>
           </View>
         </View>
 
@@ -231,7 +371,7 @@ export default function ProfilePage({ session, onLogout }: MainAppProps) {
             value={userBio}
             onChangeText={(text) => {
               setUserBio(text);
-              saveProfileData(userName, text, userAge, profilePhotos);
+              saveProfileData(userName, text, userAge, userGender, userPreference, latitude, longitude, profilePhotos);
             }}
           />
         </View>
@@ -427,5 +567,74 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 1.28,
+  },
+  pillContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  pillButton: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorder,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    minWidth: 90,
+  },
+  pillButtonActive: {
+    backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pillTextActive: {
+    color: '#FFFFFF',
+  },
+  locationSettingsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1.5,
+    borderColor: COLORS.cardBorder,
+    padding: 12,
+    marginTop: 8,
+  },
+  locationCoordsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  locationCoordsText: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  locationRefreshBtn: {
+    backgroundColor: COLORS.cardBgHover,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  locationRefreshBtnText: {
+    color: COLORS.textPrimary,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

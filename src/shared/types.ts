@@ -23,6 +23,7 @@ export interface LoginProps {
 export interface MainAppProps {
   session: any;
   onLogout: () => void;
+  isDemoMode?: boolean;
 }
 
 export interface MatchesTabProps {

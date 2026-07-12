@@ -43,7 +43,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>Vibiy needs access to your location to match you with nearby people.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Vibiy needs access to your library to upload profile photos.</string>
 	<key>NSCameraUsageDescription</key>
