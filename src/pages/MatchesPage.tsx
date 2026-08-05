@@ -17,7 +17,7 @@ import {
   Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Send, User, Trash2, X, Heart, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react-native';
+import { Send, User, Trash2, X, Heart, ChevronDown, ChevronUp, ArrowLeft, Play } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS } from '../shared/theme';
@@ -27,6 +27,7 @@ interface MatchesPageProps {
   session: any;
   isDemoMode: boolean;
   onProfileSheetToggle?: (isOpen: boolean) => void;
+  navigation?: any;
 }
 
 interface MatchRecord {
@@ -196,6 +197,74 @@ const DEMO_PARTNER_HISTORY: Record<string, ShareHistoryItem[]> = {
   ]
 };
 
+export const parseReferredMessage = (content: string) => {
+  const match = content.match(/^(https?:\/\/(?:www\.)?instagram\.com\/\S+)\n\n([\s\S]*)$/);
+  if (match) {
+    return {
+      isReferred: true,
+      url: match[1],
+      message: match[2],
+    };
+  }
+  return {
+    isReferred: false,
+    url: '',
+    message: content,
+  };
+};
+
+const getApiUrl = () => {
+  // Use the localhost.run HTTPS URL to bypass iOS App Transport Security and local network restrictions
+  return 'https://57781e953d5e81.lhr.life';
+};
+
+export const getInstagramThumbnail = (url: string) => {
+  if (!url) return null;
+  return `${getApiUrl()}/api/thumbnail?url=${encodeURIComponent(url)}`;
+};
+
+const InstagramThumbnail = ({ 
+  url, 
+  thumbnailUrl: directThumbnailUrl,
+  size = 60, 
+  width, 
+  height, 
+  borderRadius = RADIUS.sm 
+}: { 
+  url: string; 
+  thumbnailUrl?: string;
+  size?: number; 
+  width?: number; 
+  height?: number; 
+  borderRadius?: number; 
+}) => {
+  const [hasError, setHasError] = useState(false);
+  const thumbnailUrl = !hasError 
+    ? (directThumbnailUrl || (url ? getInstagramThumbnail(url) : null)) 
+    : null;
+
+  const w = width || size;
+  const h = height || size;
+
+  return (
+    <View style={[styles.thumbContainer, { width: w, height: h, borderRadius }]}>
+      <View style={StyleSheet.absoluteFill}>
+        <View style={styles.thumbFallback}>
+          <Play size={Math.min(w, h) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
+        </View>
+      </View>
+      {thumbnailUrl && (
+        <Image
+          source={{ uri: thumbnailUrl }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          onError={() => setHasError(true)}
+        />
+      )}
+    </View>
+  );
+};
+
 export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle, navigation }: MatchesPageProps) {
   const [loading, setLoading] = useState(true);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
@@ -209,6 +278,7 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
   // Liked/Shared Reels History
   const [partnerHistory, setPartnerHistory] = useState<ShareHistoryItem[]>([]);
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
+  const [referredReel, setReferredReel] = useState<ShareHistoryItem | null>(null);
 
   const chatScrollViewRef = useRef<ScrollView>(null);
 
@@ -310,24 +380,34 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
     fetchData();
 
     if (!isDemoMode && isSupabaseConfigured) {
+      console.log('🔌 Subscribing to Supabase Realtime for messages & matches...');
       // Subscribe to real-time messages
       const channel = supabase
-        .channel('realtime:messages')
+        .channel('messages_channel')
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'messages' },
+          { event: '*', schema: 'public' }, // Subscribing schema-wide
           (payload) => {
-            const newMsg = payload.new as MessageRecord;
-            setMessages((prev) => {
-              // Clean up local optimistic message duplicate if exists
-              const filtered = prev.filter(
-                (m) => !(m.id.startsWith('temp-') && m.sender_id === newMsg.sender_id && m.content === newMsg.content)
-              );
-              if (filtered.some((m) => m.id === newMsg.id)) {
-                return filtered;
-              }
-              return [...filtered, newMsg];
+            console.log('🔥 [REALTIME TRIGGERED] Got event on public schema!', {
+              table: payload.table,
+              eventType: payload.eventType,
+              newRecord: payload.new,
             });
+            
+            if (payload.table === 'messages' && payload.eventType === 'INSERT') {
+              const newMsg = payload.new as MessageRecord;
+              console.log('📝 Appending message to state & clearing optimistic duplicate:', newMsg.content);
+              setMessages((prev) => {
+                // Clean up local optimistic message duplicate if exists
+                const filtered = prev.filter(
+                  (m) => !(m.id.startsWith('temp-') && m.sender_id === newMsg.sender_id && m.content === newMsg.content)
+                );
+                if (filtered.some((m) => m.id === newMsg.id)) {
+                  return filtered;
+                }
+                return [...filtered, newMsg];
+              });
+            }
           }
         )
         .on(
@@ -335,15 +415,19 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
           { event: 'UPDATE', schema: 'public', table: 'matches' },
           (payload) => {
             const updatedMatch = payload.new as MatchRecord;
+            console.log('🔥 [REALTIME TRIGGERED] Got UPDATE event on matches table!', updatedMatch);
             if (updatedMatch.status !== 'active') {
               // Remove matches that got unmatched in real-time
               setMatches((prev) => prev.filter(m => m.id !== updatedMatch.id));
             }
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log(`🔌 Realtime subscription status: ${status}`);
+        });
 
       return () => {
+        console.log('🔌 Unsubscribing from Supabase Realtime channels');
         supabase.removeChannel(channel);
       };
     }
@@ -360,6 +444,7 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
 
   // Load partner liked/shared reels when activeChatMatchId changes
   useEffect(() => {
+    setReferredReel(null);
     const fetchPartnerHistory = async () => {
       if (!activeChatMatchId) {
         setPartnerHistory([]);
@@ -394,7 +479,9 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
             videos (
               id,
               url,
-              summary
+              summary,
+              username,
+              thumbnail_url
             )
           `)
           .eq('user_id', partnerId)
@@ -430,6 +517,8 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
                 type,
                 shortcode,
                 summary: video.summary || undefined,
+                username: video.username || undefined,
+                thumbnail_url: video.thumbnail_url || undefined,
               };
             });
           setPartnerHistory(formatted);
@@ -456,7 +545,6 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
               setMatches(updatedMatches);
               await AsyncStorage.setItem('@demo_matches', JSON.stringify(updatedMatches));
               setActiveChatMatchId(null);
-              setSelectedProfile(null);
               return;
             }
 
@@ -469,7 +557,6 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
 
             setMatches(prev => prev.filter(m => m.id !== matchId));
             setActiveChatMatchId(null);
-            setSelectedProfile(null);
             Alert.alert('Unmatched', 'You have successfully unmatched this user.');
           } catch (err: any) {
             Alert.alert('Error', err.message || 'Failed to unmatch.');
@@ -482,8 +569,12 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
   const handleSendMessage = async () => {
     if (!typedMessage.trim() || !activeChatMatchId) return;
 
-    const messageContent = typedMessage.trim();
+    let messageContent = typedMessage.trim();
+    if (referredReel) {
+      messageContent = `${referredReel.url}\n\n${messageContent}`;
+    }
     setTypedMessage('');
+    setReferredReel(null);
 
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg: MessageRecord = {
@@ -506,6 +597,12 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
         return;
       }
 
+      console.log('📤 Attempting to send message to Supabase...', {
+        match_id: activeChatMatchId,
+        sender_id: currentUserId,
+        content: messageContent,
+      });
+
       const { error } = await supabase.from('messages').insert({
         match_id: activeChatMatchId,
         sender_id: currentUserId,
@@ -513,9 +610,12 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
       });
 
       if (error) {
+        console.error('❌ Failed to insert message to Supabase:', error);
         // Rollback state if database insert failed
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
         throw error;
+      } else {
+        console.log('✅ Message successfully inserted into Supabase messages table.');
       }
     } catch (err: any) {
       // Rollback state if database insert failed
@@ -583,8 +683,10 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
 
 
 
-  const activeChatPartner = getChatPartner();
+  const activeChatMatch = matchedUsers.find(mu => mu.matchId === activeChatMatchId);
+  const activeChatPartner = activeChatMatch ? activeChatMatch.profile : null;
   const activeChatMessages = getActiveChatMessages();
+  const activeChatScore = activeChatMatch ? activeChatMatch.score : 0;
 
   return (
     <View style={styles.container}>
@@ -713,6 +815,15 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
               </TouchableOpacity>
 
               <View style={styles.chatHeaderActions}>
+                {/* Match Score Badge */}
+                {activeChatScore > 0 && (
+                  <View style={styles.headerScoreBadge}>
+                    <Text style={styles.headerScoreText}>
+                      {(activeChatScore * 100).toFixed(0)}% Match
+                    </Text>
+                  </View>
+                )}
+
                 <TouchableOpacity
                   style={styles.unmatchIconBtn}
                   onPress={() => activeChatMatchId && handleUnmatch(activeChatMatchId)}
@@ -729,64 +840,6 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
               </View>
             </View>
 
-            {/* Collapsible Shared Reels Content panel */}
-            {partnerHistory.length > 0 && (
-              <View style={styles.likedContentPanel}>
-                <TouchableOpacity
-                  style={styles.likedContentHeader}
-                  onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                >
-                  <View style={styles.likedContentTitleRow}>
-                    <Text style={styles.likedContentEmoji}>🎬</Text>
-                    <Text style={styles.likedContentTitle}>
-                      {activeChatPartner?.full_name}'s Shared Reels ({partnerHistory.length})
-                    </Text>
-                  </View>
-                  {isHistoryCollapsed ? (
-                    <ChevronDown size={16} color={COLORS.textSecondary} />
-                  ) : (
-                    <ChevronUp size={16} color={COLORS.textSecondary} />
-                  )}
-                </TouchableOpacity>
-
-                {!isHistoryCollapsed && (
-                  <View>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.likedCardsScroll}
-                    >
-                      {partnerHistory.map((item) => (
-                        <View key={item.id} style={styles.likedContentCard}>
-                          <View style={styles.likedCardHeader}>
-                            <Text style={styles.likedCardBadge}>
-                              {item.type === 'reel' ? '🎬 REEL' : '📸 POST'}
-                            </Text>
-                            <Text style={styles.likedCardTime}>{item.timestamp}</Text>
-                          </View>
-                          <Text style={styles.likedCardSummary} numberOfLines={3}>
-                            {item.summary || 'Analyzing shared content...'}
-                          </Text>
-                          <TouchableOpacity
-                            style={styles.likedCardBtn}
-                            onPress={() => {
-                              if (item.url) {
-                                Linking.openURL(item.url).catch(() =>
-                                  Alert.alert('Error', 'Cannot open Instagram link.')
-                                );
-                              }
-                            }}
-                          >
-                            <Text style={styles.likedCardBtnText}>Open Instagram</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            )}
-
             {/* Message Stream */}
             <ScrollView
               ref={chatScrollViewRef}
@@ -795,6 +848,8 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
             >
               {activeChatMessages.map((msg) => {
                 const isMine = msg.sender_id === currentUserId;
+                const parsed = parseReferredMessage(msg.content);
+                const typeLabel = parsed.url?.includes('/reel/') ? 'REEL' : 'POST';
                 return (
                   <View
                     key={msg.id}
@@ -809,8 +864,29 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
                         isMine ? styles.msgBubbleMine : styles.msgBubblePartner,
                       ]}
                     >
+                      {parsed.isReferred && (
+                        <TouchableOpacity
+                          style={styles.msgQuoteBlock}
+                          onPress={() => {
+                            if (parsed.url) {
+                              Linking.openURL(parsed.url).catch(() =>
+                                Alert.alert('Error', 'Cannot open Instagram link.')
+                              );
+                            }
+                          }}
+                        >
+                          <View style={styles.msgQuoteContentRow}>
+                            <View style={styles.msgQuoteTextWrapper}>
+                              <Text style={styles.msgQuoteType} numberOfLines={1}>
+                                🎬 SHARED {typeLabel}
+                              </Text>
+                            </View>
+                            <InstagramThumbnail url={parsed.url} size={32} />
+                          </View>
+                        </TouchableOpacity>
+                      )}
                       <Text style={[styles.msgText, isMine ? styles.msgTextMine : styles.msgTextPartner]}>
-                        {msg.content}
+                        {parsed.message}
                       </Text>
                     </View>
                     <Text style={styles.msgTime}>{formatMessageTime(msg.created_at)}</Text>
@@ -818,6 +894,78 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
                 );
               })}
             </ScrollView>
+
+            {/* Collapsible Shared Reels Content panel */}
+            {partnerHistory.length > 0 && (
+              <View style={styles.likedContentPanel}>
+                <TouchableOpacity
+                  style={styles.likedContentHeader}
+                  onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                >
+                  <View style={styles.likedContentTitleRow}>
+                    <Text style={styles.likedContentEmoji}>🎬</Text>
+                    <Text style={styles.likedContentTitle}>
+                      {activeChatPartner?.full_name}'s Shared Reels ({partnerHistory.length})
+                    </Text>
+                  </View>
+                  {isHistoryCollapsed ? (
+                    <ChevronDown size={14} color={COLORS.textSecondary} />
+                  ) : (
+                    <ChevronUp size={14} color={COLORS.textSecondary} />
+                  )}
+                </TouchableOpacity>
+
+                {!isHistoryCollapsed && (
+                  <View>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.likedCardsScroll}
+                    >
+                      {partnerHistory.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={styles.simpleThumbWrapper}
+                          onPress={() => setReferredReel(item)}
+                          onLongPress={() => {
+                            if (item.url) {
+                              Linking.openURL(item.url).catch(() =>
+                                Alert.alert('Error', 'Cannot open Instagram link.')
+                              );
+                            }
+                          }}
+                        >
+                          <InstagramThumbnail url={item.url} thumbnailUrl={item.thumbnail_url} width={70} height={105} borderRadius={10} />
+                          <View style={styles.simpleThumbBadge}>
+                            <Text style={styles.simpleThumbBadgeText}>
+                              {item.type === 'reel' ? '🎬' : '📸'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Referred Reel Banner */}
+            {referredReel && (
+              <View style={styles.referredReelBanner}>
+                <InstagramThumbnail url={referredReel.url} thumbnailUrl={referredReel.thumbnail_url} size={28} />
+                <View style={styles.referredReelBannerLeft}>
+                  <Text style={styles.referredReelBannerTitle} numberOfLines={1}>
+                    Replying to {referredReel.type === 'reel' ? 'Reel' : 'Post'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.referredReelBannerClose}
+                  onPress={() => setReferredReel(null)}
+                >
+                  <X size={14} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Chat Input Bar */}
             <View style={styles.chatInputBar}>
@@ -828,7 +976,6 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
                 value={typedMessage}
                 onChangeText={setTypedMessage}
                 multiline
-                maxHeight={100}
               />
               <TouchableOpacity
                 style={[styles.sendBtn, !typedMessage.trim() && styles.sendBtnDisabled]}
@@ -891,7 +1038,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 11,
-    fontWeight: '950',
+    fontWeight: '900',
     color: COLORS.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
@@ -1121,6 +1268,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     color: COLORS.textPrimary,
     fontSize: 14,
+    maxHeight: 100,
   },
   sendBtn: {
     width: 40,
@@ -1250,8 +1398,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   likedContentPanel: {
-    borderBottomWidth: 1.5,
-    borderBottomColor: COLORS.cardBorder,
+    borderTopWidth: 1.5,
+    borderTopColor: COLORS.cardBorder,
     backgroundColor: COLORS.cardBg,
   },
   likedContentHeader: {
@@ -1259,7 +1407,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   likedContentTitleRow: {
     flexDirection: 'row',
@@ -1267,7 +1415,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   likedContentEmoji: {
-    fontSize: 16,
+    fontSize: 14,
   },
   likedContentTitle: {
     fontSize: 11,
@@ -1278,16 +1426,23 @@ const styles = StyleSheet.create({
   },
   likedCardsScroll: {
     paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 16,
     gap: 12,
   },
   likedContentCard: {
+    flexDirection: 'row',
     backgroundColor: COLORS.bg,
     borderRadius: RADIUS.sm,
     borderWidth: 1.5,
     borderColor: COLORS.cardBorder,
-    padding: 12,
-    width: 250,
+    padding: 10,
+    width: 280,
+    gap: 12,
+  },
+  likedCardRight: {
+    flex: 1,
+    justifyContent: 'space-between',
   },
   likedCardHeader: {
     flexDirection: 'row',
@@ -1365,7 +1520,7 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   detailsClickZones: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     flexDirection: 'row',
   },
   detailsIndicators: {
@@ -1425,5 +1580,139 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  headerScoreBadge: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 4,
+  },
+  headerScoreText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  referredReelBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.cardBgHover,
+    borderTopWidth: 1.5,
+    borderTopColor: COLORS.cardBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  referredReelBannerLeft: {
+    flex: 1,
+    marginRight: 12,
+  },
+  referredReelBannerTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: COLORS.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  referredReelBannerSummary: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  referredReelBannerClose: {
+    padding: 4,
+  },
+  msgQuoteBlock: {
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: RADIUS.sm,
+    padding: 8,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.accent,
+  },
+  msgQuoteType: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: COLORS.accent,
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  msgQuoteSummary: {
+    fontSize: 11,
+    fontStyle: 'italic',
+  },
+  msgQuoteSummaryMine: {
+    color: '#e5e7e0',
+  },
+  msgQuoteSummaryPartner: {
+    color: COLORS.textSecondary,
+  },
+  likedCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  likedCardBtnMention: {
+    backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
+  },
+  likedCardBtnMentionText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  thumbContainer: {
+    borderRadius: RADIUS.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.cardBgHover,
+  },
+  thumbFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.cardBgHover,
+  },
+  msgQuoteContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  msgQuoteTextWrapper: {
+    flex: 1,
+  },
+  simpleThumbWrapper: {
+    position: 'relative',
+    marginRight: 4,
+    borderRadius: 10,
+    backgroundColor: COLORS.cardBg,
+    // Premium soft shadow to elevate the rectangular thumbnail cards
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  simpleThumbBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(30, 31, 35, 0.75)', // Glassmorphic translucent dark background
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  simpleThumbBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

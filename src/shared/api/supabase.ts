@@ -21,6 +21,9 @@ export const supabase = createClient(
       persistSession: true,
       detectSessionInUrl: false,
     },
+    realtime: {
+      logLevel: 'info',
+    },
   }
 );
 

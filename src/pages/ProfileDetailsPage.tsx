@@ -13,24 +13,12 @@ import { ArrowLeft } from 'lucide-react-native';
 import { COLORS, RADIUS } from '../shared/theme';
 
 interface ProfileDetailsPageProps {
-  route: {
-    params: {
-      profile: {
-        id: string;
-        full_name: string;
-        age: number;
-        bio: string;
-        photos: string[];
-      };
-      activeChatMatchId: string | null;
-      onChatNow: () => void;
-    };
-  };
-  navigation: any;
+  route?: any;
+  navigation?: any;
 }
 
 export default function ProfileDetailsPage({ route, navigation }: ProfileDetailsPageProps) {
-  const { profile, activeChatMatchId, onChatNow } = route.params;
+  const { profile, activeChatMatchId, onChatNow } = route?.params || {};
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
 
   const handleBack = () => {
@@ -167,7 +155,7 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   detailsClickZones: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     flexDirection: 'row',
   },
   clickZoneLeft: {

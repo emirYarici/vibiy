@@ -160,7 +160,9 @@ export default function AppContainer() {
             videos (
               id,
               url,
-              summary
+              summary,
+              username,
+              thumbnail_url
             )
           `)
           .eq('user_id', session.user.id)
@@ -196,6 +198,8 @@ export default function AppContainer() {
                 type,
                 shortcode,
                 summary: video.summary || undefined,
+                username: video.username || undefined,
+                thumbnail_url: video.thumbnail_url || undefined,
               };
             });
 

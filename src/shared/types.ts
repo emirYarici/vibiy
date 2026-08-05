@@ -5,6 +5,8 @@ export interface ShareHistoryItem {
   type: 'post' | 'reel' | 'other';
   shortcode: string;
   summary?: string;
+  username?: string;
+  thumbnail_url?: string;
 }
 
 export interface MatchProfile {

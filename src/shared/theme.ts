@@ -20,6 +20,7 @@ export const COLORS = {
 };
 
 export const RADIUS = {
+  xs: 2,
   sm: 4, // Button, inputs
   md: 6, // Cards, list items
   lg: 12,

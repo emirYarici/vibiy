@@ -157,13 +157,15 @@ export default function SharePage({ session, initialSharedUrl, onClearInitialUrl
       }
 
       const summary = responseData.summary || 'No summary returned by API.';
+      const username = responseData.username || undefined;
+      const thumbnail_url = responseData.thumbnail_url || undefined;
       setSharedUrl(url);
 
       // Add to history if it doesn't already exist, or update existing with summary
       const itemExists = history.some(item => item.url === url);
       let updatedHistory: ShareHistoryItem[];
       if (itemExists) {
-        updatedHistory = history.map(item => item.url === url ? { ...item, summary } : item);
+        updatedHistory = history.map(item => item.url === url ? { ...item, summary, username, thumbnail_url } : item);
       } else {
         const newItem: ShareHistoryItem = {
           id: responseData.id || Math.random().toString(),
@@ -172,6 +174,8 @@ export default function SharePage({ session, initialSharedUrl, onClearInitialUrl
           type,
           shortcode,
           summary,
+          username,
+          thumbnail_url,
         };
         updatedHistory = [newItem, ...history];
       }
