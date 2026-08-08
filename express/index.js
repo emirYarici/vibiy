@@ -91,18 +91,51 @@ function runScraper(url) {
 }
 
 /**
- * Helper to generate 768-dim Gemini embedding and pad with 0s to 3072 dimensions
+ * Helper to generate a clean AI summary using Gemini
+ */
+async function generateAiSummary(rawCaption) {
+  if (!genAI || !rawCaption || rawCaption.trim() === '' || rawCaption === 'Instagram Reel') {
+    return rawCaption || 'Instagram Reel';
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.5-flash' });
+    const prompt = `You are an AI assistant for a social media matching and companion app.
+Analyze the following Instagram Reel caption / text and produce a concise, high-quality 1-2 sentence description summarizing the topic, content, and vibe.
+Do NOT include hashtags, engagement bait, or emojis spam. Output ONLY the clean summary text in the primary language of the content.
+
+Raw caption:
+"""
+${rawCaption}
+"""
+
+Clean Summary:`;
+
+    const result = await model.generateContent(prompt);
+    const summary = result.response.text().trim();
+    return summary || rawCaption;
+  } catch (err) {
+    console.error('Error generating Gemini AI summary:', err.message);
+    return rawCaption;
+  }
+}
+
+/**
+ * Helper to generate 3072-dim Gemini multimodal embedding
  */
 async function generatePaddedEmbedding(text) {
   if (!genAI) return null;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-embedding-2-preview' });
     const result = await model.embedContent(text);
     const embedding = result.embedding.values;
 
     if (Array.isArray(embedding)) {
-      // Pad to exactly 3072 dimensions to match Supabase pgvector column definition
+      if (embedding.length === 3072) {
+        return embedding;
+      }
+      // Fallback padding if needed
       const padded = new Array(3072).fill(0.0);
       for (let i = 0; i < Math.min(embedding.length, 3072); i++) {
         padded[i] = embedding[i];
@@ -142,7 +175,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
     try {
       const response = await supabase
         .from('videos')
-        .select('id, url, summary, username, thumbnail_url')
+        .select('id, url, summary, username, thumbnail_url, embedding')
         .or(`url.eq.${cleanUrl},url.eq.${cleanUrl}/`)
         .maybeSingle();
       
@@ -154,7 +187,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
         hasNewColumns = false;
         const fallbackResponse = await supabase
           .from('videos')
-          .select('id, url, summary')
+          .select('id, url, summary, embedding')
           .or(`url.eq.${cleanUrl},url.eq.${cleanUrl}/`)
           .maybeSingle();
         existingVideo = fallbackResponse.data;
@@ -178,7 +211,21 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       finalSummary = existingVideo.summary || 'Instagram Reel';
       finalUsername = existingVideo.username || null;
       finalThumbnailUrl = existingVideo.thumbnail_url || null;
-      console.log(`🚀 Video already exists in DB with ID: ${videoId}. Skipping scraper.`);
+      console.log(`🚀 Video already exists in DB with ID: ${videoId}.`);
+
+      // If embedding was missing or summary needs AI processing, update it now
+      if (!existingVideo.embedding && genAI) {
+        console.log('Generating missing AI summary and embedding for existing video...');
+        finalSummary = await generateAiSummary(existingVideo.summary);
+        const newEmbedding = await generatePaddedEmbedding(finalSummary);
+        if (newEmbedding) {
+          await supabase
+            .from('videos')
+            .update({ summary: finalSummary, embedding: newEmbedding })
+            .eq('id', videoId);
+          console.log('✅ Updated existing video with AI summary and embedding.');
+        }
+      }
     } else {
       console.log('Video is new. Scraping details and generating embedding...');
       
@@ -190,7 +237,13 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
         return res.status(400).json({ success: false, error: data.error || 'Failed to scrape video.' });
       }
 
-      finalSummary = data.summary || 'Instagram Reel';
+      const rawSummary = data.summary || 'Instagram Reel';
+      console.log(`Raw scraped caption: "${rawSummary}"`);
+
+      // Generate AI Summary with Gemini
+      finalSummary = await generateAiSummary(rawSummary);
+      console.log(`✨ Gemini AI Summary: "${finalSummary}"`);
+      
       finalUsername = data.username || null;
       
       // 3. Download and upload thumbnail to Supabase Storage if available
@@ -254,12 +307,13 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
 
       const { data: newVideo, error: insertError } = await supabase
         .from('videos')
-        .insert(insertData)
-        .select('id')
+        .insert([insertData])
+        .select()
         .single();
 
       if (insertError) {
-        throw insertError;
+        console.error('Supabase video insert error:', insertError);
+        return res.status(500).json({ success: false, error: 'Database insert failed' });
       }
       videoId = newVideo.id;
       console.log(`Saved new video with ID: ${videoId}`);

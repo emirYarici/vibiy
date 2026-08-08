@@ -30,6 +30,7 @@ import SharePage from '../pages/SharePage';
 import TabBar from '../components/TabBar';
 import ProfileOnboarding from '../pages/ProfileOnboarding';
 import ProfileDetailsPage from '../pages/ProfileDetailsPage';
+import ChatPage from '../pages/ChatPage';
 
 const Stack = createNativeStackNavigator();
 
@@ -551,6 +552,7 @@ export default function AppContainer() {
           )}
         </Stack.Screen>
         <Stack.Screen name="ProfileDetails" component={ProfileDetailsPage} />
+        <Stack.Screen name="Chat" component={ChatPage} />
       </Stack.Navigator>
     </NavigationContainer>
   );

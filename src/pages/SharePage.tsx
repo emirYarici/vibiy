@@ -16,11 +16,7 @@ import {
 
 import { COLORS, RADIUS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
-
-const getApiUrl = () => {
-  // Use the localhost.run HTTPS URL to bypass iOS App Transport Security and local network restrictions
-  return 'https://57781e953d5e81.lhr.life';
-};
+import { CONFIG } from '../shared/config';
 
 interface SharePageProps {
   session?: any;
@@ -107,7 +103,7 @@ export default function SharePage({ session, initialSharedUrl, onClearInitialUrl
       }
 
       // Get dynamic API URL based on bundle source
-      const baseUrl = getApiUrl();
+      const baseUrl = CONFIG.API_BASE_URL;
       const endpoint = `${baseUrl}/api/process-video`;
 
       // Log outgoing request details

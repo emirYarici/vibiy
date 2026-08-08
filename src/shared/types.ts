@@ -31,3 +31,29 @@ export interface MainAppProps {
 export interface MatchesTabProps {
   userPhoto: string | null;
 }
+
+export interface MatchRecord {
+  id: string;
+  user_a: string;
+  user_b: string;
+  similarity_score: number;
+  status: string;
+  created_at: string;
+}
+
+export interface DBProfile {
+  id: string;
+  full_name: string;
+  age: number;
+  bio: string;
+  photos: string[];
+}
+
+export interface MessageRecord {
+  id: string;
+  match_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+}
+

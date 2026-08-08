@@ -73,3 +73,16 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Environment variables & secrets
+.env
+*.env
+.env.*
+express/.env
+
+# Python virtual environment
+venv/
+express/venv/
+__pycache__/
+*.pyc
+

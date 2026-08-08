@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,22 +6,19 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  TextInput,
-  Modal,
-  Alert,
   ActivityIndicator,
-  TouchableWithoutFeedback,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Send, User, Trash2, X, Heart, ChevronDown, ChevronUp, ArrowLeft, Play } from 'lucide-react-native';
+import { Heart } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS } from '../shared/theme';
-import { ShareHistoryItem } from '../shared/types';
+import { DBProfile, MatchRecord, MessageRecord } from '../shared/types';
+import {
+  DEMO_PROFILES,
+  DEMO_MATCHES,
+  DEFAULT_DEMO_MESSAGES,
+} from '../shared/mockData';
 
 interface MatchesPageProps {
   session: any;
@@ -29,173 +26,6 @@ interface MatchesPageProps {
   onProfileSheetToggle?: (isOpen: boolean) => void;
   navigation?: any;
 }
-
-interface MatchRecord {
-  id: string;
-  user_a: string;
-  user_b: string;
-  similarity_score: number;
-  status: string;
-  created_at: string;
-}
-
-interface DBProfile {
-  id: string;
-  full_name: string;
-  age: number;
-  bio: string;
-  photos: string[];
-}
-
-interface MessageRecord {
-  id: string;
-  match_id: string;
-  sender_id: string;
-  content: string;
-  created_at: string;
-}
-
-// --- DEMO MODE MOCKS ---
-const DEMO_PROFILES: DBProfile[] = [
-  {
-    id: 'demo-u1',
-    full_name: 'Sarah',
-    age: 24,
-    bio: 'Product Designer 🎨 • Travel addict ✈️ • Coffee enthusiast ☕. Let\'s exchange playlists!',
-    photos: [
-      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600',
-      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600',
-    ],
-  },
-  {
-    id: 'demo-u2',
-    full_name: 'Liam',
-    age: 26,
-    bio: 'Software Engineer by day, Rock Climber by night 🧗‍♂️. Craft beer lover. Tell me your favorite travel destination!',
-    photos: [
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=600',
-      'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=600',
-    ],
-  },
-  {
-    id: 'demo-u3',
-    full_name: 'Chloe',
-    age: 23,
-    bio: 'Photography student 📸 • Dog lover 🐶 • Weekend hiker. Looking for someone to capture memories with.',
-    photos: [
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600',
-      'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600',
-    ],
-  },
-];
-
-const DEMO_MATCHES: MatchRecord[] = [
-  {
-    id: 'demo-m1',
-    user_a: 'demo-guest-user',
-    user_b: 'demo-u1',
-    similarity_score: 0.89,
-    status: 'active',
-    created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'demo-m2',
-    user_a: 'demo-guest-user',
-    user_b: 'demo-u2',
-    similarity_score: 0.82,
-    status: 'active',
-    created_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'demo-m3',
-    user_a: 'demo-guest-user',
-    user_b: 'demo-u3',
-    similarity_score: 0.77,
-    status: 'active',
-    created_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
-  },
-];
-
-const DEFAULT_DEMO_MESSAGES: MessageRecord[] = [
-  {
-    id: 'dm-msg1',
-    match_id: 'demo-m1',
-    sender_id: 'demo-u1',
-    content: "Hey! Loved your Instagram reels! Let's match up?",
-    created_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'dm-msg2',
-    match_id: 'demo-m1',
-    sender_id: 'demo-guest-user',
-    content: 'Thanks Sarah! Your design style is super cool too!',
-    created_at: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'dm-msg3',
-    match_id: 'demo-m2',
-    sender_id: 'demo-u2',
-    content: 'Are you down for coffee this week? ☕',
-    created_at: new Date(Date.now() - 120 * 60 * 1000).toISOString(),
-  },
-];
-
-const DEMO_PARTNER_HISTORY: Record<string, ShareHistoryItem[]> = {
-  'demo-u1': [
-    {
-      id: 'h-s1',
-      url: 'https://www.instagram.com/reel/C8rXa-vMx72/',
-      timestamp: 'Yesterday',
-      type: 'reel',
-      shortcode: 'C8rXa-vMx72',
-      summary: 'Aesthetic travel vlog of Amalfi coast, showing lemons, cliffside towns, and crystal clear Mediterranean waters. 🍋🇮🇹'
-    },
-    {
-      id: 'h-s2',
-      url: 'https://www.instagram.com/p/C9Pzm-tsoP2/',
-      timestamp: '3 days ago',
-      type: 'post',
-      shortcode: 'C9Pzm-tsoP2',
-      summary: 'Design trends for 2026: focusing on dark mode gradients, clean typography, and interactive interfaces. 🎨✨'
-    }
-  ],
-  'demo-u2': [
-    {
-      id: 'h-l1',
-      url: 'https://www.instagram.com/reel/C7pXx-vMb89/',
-      timestamp: '2 days ago',
-      type: 'reel',
-      shortcode: 'C7pXx-vMb89',
-      summary: 'Insane climbing route beta! Climbing a V8 dyno route in a neon bouldering gym. 🧗‍♂️⚡'
-    },
-    {
-      id: 'h-l2',
-      url: 'https://www.instagram.com/reel/C6pXx-vMb89/',
-      timestamp: '5 days ago',
-      type: 'reel',
-      shortcode: 'C6pXx-vMb89',
-      summary: 'Reviewing top craft breweries in Denver, focusing on citrus notes and rich, foggy IPAs. 🍺🌾'
-    }
-  ],
-  'demo-u3': [
-    {
-      id: 'h-c1',
-      url: 'https://www.instagram.com/p/C8oXa-vMs55/',
-      timestamp: 'Yesterday',
-      type: 'post',
-      shortcode: 'C8oXa-vMs55',
-      summary: 'Golden hour portraits shot on 35mm film in Portland, featuring warm lighting and soft grain. 📸🌅'
-    },
-    {
-      id: 'h-c2',
-      url: 'https://www.instagram.com/reel/C5oXa-vMs55/',
-      timestamp: '1 week ago',
-      type: 'reel',
-      shortcode: 'C5oXa-vMs55',
-      summary: 'Cinematic hike compilation through Yosemite, reaching Glacier Point at sunrise. 🌲🏔️'
-    }
-  ]
-};
 
 export const parseReferredMessage = (content: string) => {
   const match = content.match(/^(https?:\/\/(?:www\.)?instagram\.com\/\S+)\n\n([\s\S]*)$/);
@@ -213,86 +43,22 @@ export const parseReferredMessage = (content: string) => {
   };
 };
 
-const getApiUrl = () => {
-  // Use the localhost.run HTTPS URL to bypass iOS App Transport Security and local network restrictions
-  return 'https://57781e953d5e81.lhr.life';
-};
-
-export const getInstagramThumbnail = (url: string) => {
-  if (!url) return null;
-  return `${getApiUrl()}/api/thumbnail?url=${encodeURIComponent(url)}`;
-};
-
-const InstagramThumbnail = ({ 
-  url, 
-  thumbnailUrl: directThumbnailUrl,
-  size = 60, 
-  width, 
-  height, 
-  borderRadius = RADIUS.sm 
-}: { 
-  url: string; 
-  thumbnailUrl?: string;
-  size?: number; 
-  width?: number; 
-  height?: number; 
-  borderRadius?: number; 
-}) => {
-  const [hasError, setHasError] = useState(false);
-  const thumbnailUrl = !hasError 
-    ? (directThumbnailUrl || (url ? getInstagramThumbnail(url) : null)) 
-    : null;
-
-  const w = width || size;
-  const h = height || size;
-
-  return (
-    <View style={[styles.thumbContainer, { width: w, height: h, borderRadius }]}>
-      <View style={StyleSheet.absoluteFill}>
-        <View style={styles.thumbFallback}>
-          <Play size={Math.min(w, h) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
-        </View>
-      </View>
-      {thumbnailUrl && (
-        <Image
-          source={{ uri: thumbnailUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          onError={() => setHasError(true)}
-        />
-      )}
-    </View>
-  );
-};
-
-export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle, navigation }: MatchesPageProps) {
+export default function MatchesPage({ session, isDemoMode, navigation }: MatchesPageProps) {
   const [loading, setLoading] = useState(true);
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [profiles, setProfiles] = useState<Record<string, DBProfile>>({});
   const [messages, setMessages] = useState<MessageRecord[]>([]);
-  
-  // Modals & Navigation
-  const [activeChatMatchId, setActiveChatMatchId] = useState<string | null>(null);
-  const [typedMessage, setTypedMessage] = useState('');
-  
-  // Liked/Shared Reels History
-  const [partnerHistory, setPartnerHistory] = useState<ShareHistoryItem[]>([]);
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
-  const [referredReel, setReferredReel] = useState<ShareHistoryItem | null>(null);
-
-  const chatScrollViewRef = useRef<ScrollView>(null);
 
   const currentUserId = session?.user?.id || 'demo-guest-user';
 
-  // Load Matches, Profiles, and Messages
+  // Load Matches, Profiles, and Message log (to show snippet of last message)
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       if (isDemoMode || !isSupabaseConfigured) {
-        // Load from demo constants / local storage
         const localMatches = await AsyncStorage.getItem('@demo_matches');
         const localMessages = await AsyncStorage.getItem('@demo_messages');
-        
+
         if (localMatches) {
           setMatches(JSON.parse(localMatches));
         } else {
@@ -308,7 +74,7 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
         }
 
         const profileMap: Record<string, DBProfile> = {};
-        DEMO_PROFILES.forEach(p => {
+        DEMO_PROFILES.forEach((p) => {
           profileMap[p.id] = p;
         });
         setProfiles(profileMap);
@@ -316,7 +82,7 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
         return;
       }
 
-      // Fetch Real Matches
+      // Fetch Real active matches
       const { data: dbMatches, error: matchesError } = await supabase
         .from('matches')
         .select('*')
@@ -358,8 +124,8 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
       });
       setProfiles(profileMap);
 
-      // Fetch Messages for these matches
-      const matchIds = dbMatches.map(m => m.id);
+      // Fetch Messages for these matches to show last message snippets
+      const matchIds = dbMatches.map((m) => m.id);
       const { data: dbMessages, error: messagesError } = await supabase
         .from('messages')
         .select('*')
@@ -380,292 +146,87 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
     fetchData();
 
     if (!isDemoMode && isSupabaseConfigured) {
-      console.log('🔌 Subscribing to Supabase Realtime for messages & matches...');
-      // Subscribe to real-time messages
+      console.log('🔌 Subscribing to Supabase Realtime for matches list...');
+      
+      // Explicitly listen to target tables to avoid wildcard public schema broadcasts
       const channel = supabase
-        .channel('messages_channel')
+        .channel('matches_list_updates')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public' }, // Subscribing schema-wide
+          { event: 'INSERT', schema: 'public', table: 'messages' },
           (payload) => {
-            console.log('🔥 [REALTIME TRIGGERED] Got event on public schema!', {
-              table: payload.table,
-              eventType: payload.eventType,
-              newRecord: payload.new,
+            const newMsg = payload.new as MessageRecord;
+            console.log('🔥 [REALTIME TRIGGERED] New message in inbox:', newMsg.content);
+            setMessages((prev) => {
+              const filtered = prev.filter((m) => m.id !== newMsg.id);
+              return [...filtered, newMsg];
             });
-            
-            if (payload.table === 'messages' && payload.eventType === 'INSERT') {
-              const newMsg = payload.new as MessageRecord;
-              console.log('📝 Appending message to state & clearing optimistic duplicate:', newMsg.content);
-              setMessages((prev) => {
-                // Clean up local optimistic message duplicate if exists
-                const filtered = prev.filter(
-                  (m) => !(m.id.startsWith('temp-') && m.sender_id === newMsg.sender_id && m.content === newMsg.content)
-                );
-                if (filtered.some((m) => m.id === newMsg.id)) {
-                  return filtered;
-                }
-                return [...filtered, newMsg];
-              });
-            }
           }
         )
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'matches' },
+          { event: '*', schema: 'public', table: 'matches' },
           (payload) => {
-            const updatedMatch = payload.new as MatchRecord;
-            console.log('🔥 [REALTIME TRIGGERED] Got UPDATE event on matches table!', updatedMatch);
-            if (updatedMatch.status !== 'active') {
-              // Remove matches that got unmatched in real-time
-              setMatches((prev) => prev.filter(m => m.id !== updatedMatch.id));
+            console.log('🔥 [REALTIME TRIGGERED] Match event in matches list:', payload.eventType);
+            if (payload.eventType === 'UPDATE') {
+              const updatedMatch = payload.new as MatchRecord;
+              if (updatedMatch.status !== 'active') {
+                setMatches((prev) => prev.filter((m) => m.id !== updatedMatch.id));
+              }
+            } else if (payload.eventType === 'INSERT') {
+              const newMatch = payload.new as MatchRecord;
+              if (newMatch.user_a === currentUserId || newMatch.user_b === currentUserId) {
+                setMatches((prev) => {
+                  if (prev.some((m) => m.id === newMatch.id)) return prev;
+                  return [...prev, newMatch];
+                });
+              }
             }
           }
         )
-        .subscribe((status) => {
-          console.log(`🔌 Realtime subscription status: ${status}`);
-        });
+        .subscribe();
 
       return () => {
-        console.log('🔌 Unsubscribing from Supabase Realtime channels');
+        console.log('🔌 Unsubscribing from matches list Supabase Realtime channel');
         supabase.removeChannel(channel);
       };
     }
   }, [fetchData, isDemoMode]);
 
-  // Scroll Chat to bottom
-  useEffect(() => {
-    if (activeChatMatchId) {
-      setTimeout(() => {
-        chatScrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }
-  }, [activeChatMatchId, messages]);
+  // Group Matches and compile details
+  const matchedUsers = matches
+    .map((match) => {
+      const otherUserId = match.user_a === currentUserId ? match.user_b : match.user_a;
+      const otherProfile = profiles[otherUserId];
+      const matchMessages = messages.filter((m) => m.match_id === match.id);
+      const lastMessage = matchMessages[matchMessages.length - 1];
 
-  // Load partner liked/shared reels when activeChatMatchId changes
-  useEffect(() => {
-    setReferredReel(null);
-    const fetchPartnerHistory = async () => {
-      if (!activeChatMatchId) {
-        setPartnerHistory([]);
-        return;
-      }
-
-      // Find the partner ID
-      const match = matches.find((m) => m.id === activeChatMatchId);
-      const partnerId = match
-        ? match.user_a === currentUserId
-          ? match.user_b
-          : match.user_a
-        : null;
-
-      if (!partnerId) {
-        setPartnerHistory([]);
-        return;
-      }
-
-      if (isDemoMode || !isSupabaseConfigured) {
-        // Load from mock data
-        setPartnerHistory(DEMO_PARTNER_HISTORY[partnerId] || []);
-        return;
-      }
-
-      try {
-        const { data, error } = await supabase
-          .from('userid_videos')
-          .select(`
-            id,
-            created_at,
-            videos (
-              id,
-              url,
-              summary,
-              username,
-              thumbnail_url
-            )
-          `)
-          .eq('user_id', partnerId)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        if (data) {
-          const formatted: ShareHistoryItem[] = data
-            .filter((item: any) => item.videos !== null)
-            .map((item: any) => {
-              const video = item.videos;
-              const url = video.url;
-
-              let type: 'post' | 'reel' | 'other' = 'other';
-              let shortcode = 'N/A';
-              if (url.includes('/p/')) {
-                type = 'post';
-                const parts = url.split('/p/');
-                if (parts[1]) shortcode = parts[1].split('/')[0] || 'N/A';
-              } else if (url.includes('/reel/')) {
-                type = 'reel';
-                const parts = url.split('/reel/');
-                if (parts[1]) shortcode = parts[1].split('/')[0] || 'N/A';
-              }
-
-              const timeStr = new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
-
-              return {
-                id: video.id || item.id,
-                url,
-                timestamp: timeStr,
-                type,
-                shortcode,
-                summary: video.summary || undefined,
-                username: video.username || undefined,
-                thumbnail_url: video.thumbnail_url || undefined,
-              };
-            });
-          setPartnerHistory(formatted);
-        }
-      } catch (err) {
-        console.error('Failed to load partner shared history:', err);
-      }
-    };
-
-    fetchPartnerHistory();
-    setIsHistoryCollapsed(true); // reset collapse state for new chat
-  }, [activeChatMatchId, matches, currentUserId, isDemoMode]);
-
-  const handleUnmatch = async (matchId: string) => {
-    Alert.alert('Unmatch User', 'Are you sure you want to end this connection?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Unmatch',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            if (isDemoMode || !isSupabaseConfigured) {
-              const updatedMatches = matches.filter(m => m.id !== matchId);
-              setMatches(updatedMatches);
-              await AsyncStorage.setItem('@demo_matches', JSON.stringify(updatedMatches));
-              setActiveChatMatchId(null);
-              return;
-            }
-
-            const { error } = await supabase
-              .from('matches')
-              .update({ status: 'unmatched' })
-              .eq('id', matchId);
-
-            if (error) throw error;
-
-            setMatches(prev => prev.filter(m => m.id !== matchId));
-            setActiveChatMatchId(null);
-            Alert.alert('Unmatched', 'You have successfully unmatched this user.');
-          } catch (err: any) {
-            Alert.alert('Error', err.message || 'Failed to unmatch.');
-          }
+      return {
+        matchId: match.id,
+        profile: otherProfile || {
+          id: otherUserId,
+          full_name: 'Loading User...',
+          age: 20,
+          bio: '',
+          photos: ['https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'],
         },
-      },
-    ]);
-  };
-
-  const handleSendMessage = async () => {
-    if (!typedMessage.trim() || !activeChatMatchId) return;
-
-    let messageContent = typedMessage.trim();
-    if (referredReel) {
-      messageContent = `${referredReel.url}\n\n${messageContent}`;
-    }
-    setTypedMessage('');
-    setReferredReel(null);
-
-    const tempId = `temp-${Date.now()}`;
-    const optimisticMsg: MessageRecord = {
-      id: tempId,
-      match_id: activeChatMatchId,
-      sender_id: currentUserId,
-      content: messageContent,
-      created_at: new Date().toISOString(),
-    };
-
-    // Optimistically update message bubble instantly
-    setMessages((prev) => [...prev, optimisticMsg]);
-
-    try {
-      if (isDemoMode || !isSupabaseConfigured) {
-        // Save locally to demo cache
-        const updatedMessages = [...messages, optimisticMsg];
-        setMessages(updatedMessages);
-        await AsyncStorage.setItem('@demo_messages', JSON.stringify(updatedMessages));
-        return;
-      }
-
-      console.log('📤 Attempting to send message to Supabase...', {
-        match_id: activeChatMatchId,
-        sender_id: currentUserId,
-        content: messageContent,
-      });
-
-      const { error } = await supabase.from('messages').insert({
-        match_id: activeChatMatchId,
-        sender_id: currentUserId,
-        content: messageContent,
-      });
-
-      if (error) {
-        console.error('❌ Failed to insert message to Supabase:', error);
-        // Rollback state if database insert failed
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
-        throw error;
-      } else {
-        console.log('✅ Message successfully inserted into Supabase messages table.');
-      }
-    } catch (err: any) {
-      // Rollback state if database insert failed
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      Alert.alert('Failed to send', err.message || 'Check your internet connection.');
-    }
-  };
-
-  // Group Matches
-  const matchedUsers = matches.map((match) => {
-    const otherUserId = match.user_a === currentUserId ? match.user_b : match.user_a;
-    const otherProfile = profiles[otherUserId];
-    const matchMessages = messages.filter(m => m.match_id === match.id);
-    const lastMessage = matchMessages[matchMessages.length - 1];
-
-    return {
-      matchId: match.id,
-      profile: otherProfile || {
-        id: otherUserId,
-        full_name: 'Loading User...',
-        age: 20,
-        bio: '',
-        photos: ['https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'],
-      },
-      lastMessage,
-      score: match.similarity_score,
-    };
-  }).filter(item => item.profile !== undefined);
+        lastMessage,
+        score: match.similarity_score,
+      };
+    })
+    .filter((item) => item.profile !== undefined);
 
   // Blended Lists:
   // "New Matches" have no messages exchanged
-  const newMatches = matchedUsers.filter(mu => !mu.lastMessage);
+  const newMatches = matchedUsers.filter((mu) => !mu.lastMessage);
   // "Conversations" have at least one message
   const conversations = matchedUsers
-    .filter(mu => !!mu.lastMessage)
+    .filter((mu) => !!mu.lastMessage)
     .sort((a, b) => {
       const timeA = new Date(a.lastMessage!.created_at).getTime();
       const timeB = new Date(b.lastMessage!.created_at).getTime();
       return timeB - timeA;
     });
-
-  const getChatPartner = () => {
-    if (!activeChatMatchId) return null;
-    const match = matchedUsers.find(mu => mu.matchId === activeChatMatchId);
-    return match ? match.profile : null;
-  };
-
-  const getActiveChatMessages = () => {
-    return messages.filter(m => m.match_id === activeChatMatchId);
-  };
 
   const formatMessageTime = (isoString: string) => {
     const date = new Date(isoString);
@@ -680,13 +241,6 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
       </View>
     );
   }
-
-
-
-  const activeChatMatch = matchedUsers.find(mu => mu.matchId === activeChatMatchId);
-  const activeChatPartner = activeChatMatch ? activeChatMatch.profile : null;
-  const activeChatMessages = getActiveChatMessages();
-  const activeChatScore = activeChatMatch ? activeChatMatch.score : 0;
 
   return (
     <View style={styles.container}>
@@ -718,7 +272,11 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
                             (m) => m.user_a === item.profile.id || m.user_b === item.profile.id
                           );
                           if (match) {
-                            setActiveChatMatchId(match.id);
+                            navigation.replace('Chat', {
+                              matchId: match.id,
+                              session,
+                              isDemoMode,
+                            });
                           }
                         },
                       });
@@ -748,246 +306,46 @@ export default function MatchesPage({ session, isDemoMode, onProfileSheetToggle,
               </View>
             ) : (
               <View style={styles.conversationsList}>
-                {conversations.map((item) => (
-                  <TouchableOpacity
-                    key={item.matchId}
-                    style={styles.convoCard}
-                    onPress={() => setActiveChatMatchId(item.matchId)}
-                  >
-                    <Image source={{ uri: item.profile.photos[0] }} style={styles.convoAvatar} />
-                    <View style={styles.convoDetails}>
-                      <View style={styles.convoRow}>
-                        <Text style={styles.convoName}>{item.profile.full_name}</Text>
-                        <Text style={styles.convoTime}>
-                          {formatMessageTime(item.lastMessage!.created_at)}
+                {conversations.map((item) => {
+                  const isMine = item.lastMessage.sender_id === currentUserId;
+                  const parsed = parseReferredMessage(item.lastMessage.content);
+                  const lastTextSnippet = parsed.isReferred
+                    ? `🎬 Shared ${parsed.url.includes('/reel/') ? 'Reel' : 'Post'}`
+                    : parsed.message;
+
+                  return (
+                    <TouchableOpacity
+                      key={item.matchId}
+                      style={styles.convoCard}
+                      onPress={() =>
+                        navigation.navigate('Chat', {
+                          matchId: item.matchId,
+                          session,
+                          isDemoMode,
+                        })
+                      }
+                    >
+                      <Image source={{ uri: item.profile.photos[0] }} style={styles.convoAvatar} />
+                      <View style={styles.convoDetails}>
+                        <View style={styles.convoRow}>
+                          <Text style={styles.convoName}>{item.profile.full_name}</Text>
+                          <Text style={styles.convoTime}>
+                            {formatMessageTime(item.lastMessage.created_at)}
+                          </Text>
+                        </View>
+                        <Text style={styles.convoLastMsg} numberOfLines={1}>
+                          {isMine ? 'You: ' : ''}
+                          {lastTextSnippet}
                         </Text>
                       </View>
-                      <Text style={styles.convoLastMsg} numberOfLines={1}>
-                        {item.lastMessage!.sender_id === currentUserId ? 'You: ' : ''}
-                        {item.lastMessage!.content}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
           </View>
         </ScrollView>
       )}
-
-      {/* --- CHAT MODAL OVERLAY --- */}
-      <Modal
-        visible={activeChatMatchId !== null}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setActiveChatMatchId(null)}
-      >
-        <SafeAreaView style={styles.chatContainer}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={{ flex: 1 }}
-          >
-            {/* Chat Header */}
-            <View style={styles.chatHeader}>
-              <TouchableOpacity
-                style={styles.chatUserBtn}
-                onPress={() => {
-                  if (activeChatPartner) {
-                    navigation.navigate('ProfileDetails', {
-                      profile: activeChatPartner,
-                      activeChatMatchId,
-                      onChatNow: () => {},
-                    });
-                  }
-                }}
-              >
-                {activeChatPartner?.photos[0] ? (
-                  <Image source={{ uri: activeChatPartner.photos[0] }} style={styles.chatHeaderAvatar} />
-                ) : (
-                  <View style={styles.fallbackHeaderAvatar}>
-                    <User size={16} color={COLORS.textMuted} />
-                  </View>
-                )}
-                <View>
-                  <Text style={styles.chatHeaderName}>{activeChatPartner?.full_name}</Text>
-                  <Text style={styles.chatHeaderStatus}>View Profile</Text>
-                </View>
-              </TouchableOpacity>
-
-              <View style={styles.chatHeaderActions}>
-                {/* Match Score Badge */}
-                {activeChatScore > 0 && (
-                  <View style={styles.headerScoreBadge}>
-                    <Text style={styles.headerScoreText}>
-                      {(activeChatScore * 100).toFixed(0)}% Match
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={styles.unmatchIconBtn}
-                  onPress={() => activeChatMatchId && handleUnmatch(activeChatMatchId)}
-                >
-                  <Trash2 size={18} color={COLORS.danger} />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.closeChatBtn}
-                  onPress={() => setActiveChatMatchId(null)}
-                >
-                  <X size={20} color={COLORS.textPrimary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Message Stream */}
-            <ScrollView
-              ref={chatScrollViewRef}
-              style={styles.chatMessagesScroll}
-              contentContainerStyle={styles.chatMessagesContent}
-            >
-              {activeChatMessages.map((msg) => {
-                const isMine = msg.sender_id === currentUserId;
-                const parsed = parseReferredMessage(msg.content);
-                const typeLabel = parsed.url?.includes('/reel/') ? 'REEL' : 'POST';
-                return (
-                  <View
-                    key={msg.id}
-                    style={[
-                      styles.msgBubbleRow,
-                      isMine ? styles.msgBubbleRowMine : styles.msgBubbleRowPartner,
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.msgBubble,
-                        isMine ? styles.msgBubbleMine : styles.msgBubblePartner,
-                      ]}
-                    >
-                      {parsed.isReferred && (
-                        <TouchableOpacity
-                          style={styles.msgQuoteBlock}
-                          onPress={() => {
-                            if (parsed.url) {
-                              Linking.openURL(parsed.url).catch(() =>
-                                Alert.alert('Error', 'Cannot open Instagram link.')
-                              );
-                            }
-                          }}
-                        >
-                          <View style={styles.msgQuoteContentRow}>
-                            <View style={styles.msgQuoteTextWrapper}>
-                              <Text style={styles.msgQuoteType} numberOfLines={1}>
-                                🎬 SHARED {typeLabel}
-                              </Text>
-                            </View>
-                            <InstagramThumbnail url={parsed.url} size={32} />
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                      <Text style={[styles.msgText, isMine ? styles.msgTextMine : styles.msgTextPartner]}>
-                        {parsed.message}
-                      </Text>
-                    </View>
-                    <Text style={styles.msgTime}>{formatMessageTime(msg.created_at)}</Text>
-                  </View>
-                );
-              })}
-            </ScrollView>
-
-            {/* Collapsible Shared Reels Content panel */}
-            {partnerHistory.length > 0 && (
-              <View style={styles.likedContentPanel}>
-                <TouchableOpacity
-                  style={styles.likedContentHeader}
-                  onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                >
-                  <View style={styles.likedContentTitleRow}>
-                    <Text style={styles.likedContentEmoji}>🎬</Text>
-                    <Text style={styles.likedContentTitle}>
-                      {activeChatPartner?.full_name}'s Shared Reels ({partnerHistory.length})
-                    </Text>
-                  </View>
-                  {isHistoryCollapsed ? (
-                    <ChevronDown size={14} color={COLORS.textSecondary} />
-                  ) : (
-                    <ChevronUp size={14} color={COLORS.textSecondary} />
-                  )}
-                </TouchableOpacity>
-
-                {!isHistoryCollapsed && (
-                  <View>
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={styles.likedCardsScroll}
-                    >
-                      {partnerHistory.map((item) => (
-                        <TouchableOpacity
-                          key={item.id}
-                          style={styles.simpleThumbWrapper}
-                          onPress={() => setReferredReel(item)}
-                          onLongPress={() => {
-                            if (item.url) {
-                              Linking.openURL(item.url).catch(() =>
-                                Alert.alert('Error', 'Cannot open Instagram link.')
-                              );
-                            }
-                          }}
-                        >
-                          <InstagramThumbnail url={item.url} thumbnailUrl={item.thumbnail_url} width={70} height={105} borderRadius={10} />
-                          <View style={styles.simpleThumbBadge}>
-                            <Text style={styles.simpleThumbBadgeText}>
-                              {item.type === 'reel' ? '🎬' : '📸'}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Referred Reel Banner */}
-            {referredReel && (
-              <View style={styles.referredReelBanner}>
-                <InstagramThumbnail url={referredReel.url} thumbnailUrl={referredReel.thumbnail_url} size={28} />
-                <View style={styles.referredReelBannerLeft}>
-                  <Text style={styles.referredReelBannerTitle} numberOfLines={1}>
-                    Replying to {referredReel.type === 'reel' ? 'Reel' : 'Post'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.referredReelBannerClose}
-                  onPress={() => setReferredReel(null)}
-                >
-                  <X size={14} color={COLORS.textMuted} />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Chat Input Bar */}
-            <View style={styles.chatInputBar}>
-              <TextInput
-                style={styles.chatInput}
-                placeholder="Type your message..."
-                placeholderTextColor={COLORS.textMuted}
-                value={typedMessage}
-                onChangeText={setTypedMessage}
-                multiline
-              />
-              <TouchableOpacity
-                style={[styles.sendBtn, !typedMessage.trim() && styles.sendBtnDisabled]}
-                onPress={handleSendMessage}
-                disabled={!typedMessage.trim()}
-              >
-                <Send size={18} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
     </View>
   );
 }
@@ -1142,577 +500,5 @@ const styles = StyleSheet.create({
   convoLastMsg: {
     fontSize: 13,
     color: COLORS.textSecondary,
-  },
-
-  // --- CHAT MODAL STYLES ---
-  chatContainer: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-  },
-  chatHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1.5,
-    borderBottomColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
-  },
-  chatUserBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  chatHeaderAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: RADIUS.sm,
-    marginRight: 10,
-  },
-  fallbackHeaderAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.cardBgHover,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  chatHeaderName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-  },
-  chatHeaderStatus: {
-    fontSize: 11,
-    color: COLORS.accent,
-    fontWeight: '700',
-  },
-  chatHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  unmatchIconBtn: {
-    padding: 6,
-  },
-  closeChatBtn: {
-    padding: 6,
-  },
-  chatMessagesScroll: {
-    flex: 1,
-    padding: 16,
-  },
-  chatMessagesContent: {
-    paddingBottom: 24,
-  },
-  msgBubbleRow: {
-    marginBottom: 12,
-    maxWidth: '80%',
-  },
-  msgBubbleRowMine: {
-    alignSelf: 'flex-end',
-    alignItems: 'flex-end',
-  },
-  msgBubbleRowPartner: {
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start',
-  },
-  msgBubble: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: RADIUS.md,
-  },
-  msgBubbleMine: {
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 2,
-  },
-  msgBubblePartner: {
-    backgroundColor: COLORS.cardBgHover,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    borderBottomLeftRadius: 2,
-  },
-  msgText: {
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  msgTextMine: {
-    color: '#FFFFFF',
-  },
-  msgTextPartner: {
-    color: COLORS.textPrimary,
-  },
-  msgTime: {
-    fontSize: 9,
-    color: COLORS.textMuted,
-    marginTop: 4,
-  },
-  chatInputBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
-    gap: 12,
-  },
-  chatInput: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    borderRadius: RADIUS.pill,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    color: COLORS.textPrimary,
-    fontSize: 14,
-    maxHeight: 100,
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.5,
-  },
-
-  // --- GALLERY MODAL STYLES ---
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'flex-end',
-    zIndex: 999,
-  },
-  modalBackgroundBlur: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(16, 24, 40, 0.6)',
-  },
-  galleryCardContainer: {
-    backgroundColor: COLORS.cardBg,
-    borderTopLeftRadius: RADIUS.lg,
-    borderTopRightRadius: RADIUS.lg,
-    width: '100%',
-    maxHeight: '90%',
-    padding: 24,
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-  },
-  galleryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  galleryHeaderName: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  galleryCloseBtn: {
-    padding: 8,
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.pill,
-  },
-  galleryImageWrapper: {
-    width: '100%',
-    aspectRatio: 0.82,
-    borderRadius: RADIUS.md,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: COLORS.cardBgHover,
-  },
-  galleryImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  galleryClickZones: {
-    ...StyleSheet.absoluteFill,
-    flexDirection: 'row',
-  },
-  clickZoneLeft: {
-    flex: 1,
-  },
-  clickZoneRight: {
-    flex: 1,
-  },
-  galleryIndicators: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    gap: 6,
-  },
-  indicatorPip: {
-    flex: 1,
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-    borderRadius: RADIUS.pill,
-  },
-  activeIndicatorPip: {
-    backgroundColor: COLORS.accent,
-  },
-  galleryMetaScroll: {
-    marginTop: 18,
-    maxHeight: 180,
-  },
-  galleryBioTitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: COLORS.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 6,
-  },
-  galleryBioText: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  galleryChatNowBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.sm,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  galleryChatNowText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  likedContentPanel: {
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
-  },
-  likedContentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  likedContentTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  likedContentEmoji: {
-    fontSize: 14,
-  },
-  likedContentTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  likedCardsScroll: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-    gap: 12,
-  },
-  likedContentCard: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.bg,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    padding: 10,
-    width: 280,
-    gap: 12,
-  },
-  likedCardRight: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  likedCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  likedCardBadge: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: COLORS.accent,
-    letterSpacing: 0.5,
-  },
-  likedCardTime: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-  },
-  likedCardSummary: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    lineHeight: 16,
-    marginBottom: 10,
-    height: 48,
-  },
-  likedCardBtn: {
-    backgroundColor: COLORS.cardBgHover,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    paddingVertical: 6,
-    alignItems: 'center',
-  },
-  likedCardBtnText: {
-    color: COLORS.textPrimary,
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  detailsContainer: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-  },
-  detailsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1.5,
-    borderBottomColor: COLORS.cardBorder,
-  },
-  detailsBackBtn: {
-    padding: 8,
-  },
-  detailsHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  detailsScroll: {
-    paddingBottom: 40,
-  },
-  detailsPhotoWrapper: {
-    width: '100%',
-    aspectRatio: 0.9,
-    position: 'relative',
-    backgroundColor: '#000000',
-  },
-  detailsImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  detailsClickZones: {
-    ...StyleSheet.absoluteFill,
-    flexDirection: 'row',
-  },
-  detailsIndicators: {
-    position: 'absolute',
-    top: 14,
-    left: 14,
-    right: 14,
-    flexDirection: 'row',
-    gap: 6,
-  },
-  detailsPip: {
-    flex: 1,
-    height: 3,
-    borderRadius: RADIUS.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-  },
-  detailsActivePip: {
-    backgroundColor: '#FFFFFF',
-  },
-  detailsMetaCard: {
-    padding: 24,
-    gap: 16,
-  },
-  detailsName: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    letterSpacing: -0.5,
-  },
-  detailsAge: {
-    fontWeight: '300',
-    color: COLORS.textSecondary,
-  },
-  detailsBioLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginTop: 8,
-  },
-  detailsBioText: {
-    fontSize: 15,
-    lineHeight: 22,
-    color: COLORS.textSecondary,
-  },
-  detailsChatBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.sm,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  detailsChatBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  headerScoreBadge: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 4,
-  },
-  headerScoreText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  referredReelBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.cardBgHover,
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 12,
-  },
-  referredReelBannerLeft: {
-    flex: 1,
-    marginRight: 12,
-  },
-  referredReelBannerTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.accent,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  referredReelBannerSummary: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-  },
-  referredReelBannerClose: {
-    padding: 4,
-  },
-  msgQuoteBlock: {
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    borderRadius: RADIUS.sm,
-    padding: 8,
-    marginBottom: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.accent,
-  },
-  msgQuoteType: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: COLORS.accent,
-    marginBottom: 2,
-    letterSpacing: 0.5,
-  },
-  msgQuoteSummary: {
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-  msgQuoteSummaryMine: {
-    color: '#e5e7e0',
-  },
-  msgQuoteSummaryPartner: {
-    color: COLORS.textSecondary,
-  },
-  likedCardActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  likedCardBtnMention: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
-  },
-  likedCardBtnMentionText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  thumbContainer: {
-    borderRadius: RADIUS.sm,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBgHover,
-  },
-  thumbFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.cardBgHover,
-  },
-  msgQuoteContentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  msgQuoteTextWrapper: {
-    flex: 1,
-  },
-  simpleThumbWrapper: {
-    position: 'relative',
-    marginRight: 4,
-    borderRadius: 10,
-    backgroundColor: COLORS.cardBg,
-    // Premium soft shadow to elevate the rectangular thumbnail cards
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  simpleThumbBadge: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: 'rgba(30, 31, 35, 0.75)', // Glassmorphic translucent dark background
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  simpleThumbBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
 });

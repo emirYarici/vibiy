@@ -27,7 +27,6 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
 
   const handleChatNow = () => {
     onChatNow();
-    navigation.goBack();
   };
 
   return (
@@ -77,7 +76,7 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
             {/* Photo Indicator Pips */}
             <View style={styles.detailsIndicators}>
               {profile.photos &&
-                profile.photos.map((_, index) => (
+                profile.photos.map((_: string, index: number) => (
                   <View
                     key={index}
                     style={[
