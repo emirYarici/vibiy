@@ -14,23 +14,29 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { MapPin } from 'lucide-react-native';
+import { MapPin, Camera, Sparkles, Eye, Edit3, Check } from 'lucide-react-native';
 import Geolocation from 'react-native-geolocation-service';
 
 import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { COLORS, RADIUS } from '../shared/theme';
+import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { MainAppProps } from '../shared/types';
 
 export default function ProfilePage({ session, onLogout, isDemoMode = false }: MainAppProps) {
+  const [activeTab, setActiveTab] = useState<'preview' | 'edit'>('preview');
   const [userName, setUserName] = useState('');
   const [userBio, setUserBio] = useState('');
   const [userAge, setUserAge] = useState('');
+  const [userOccupation, setUserOccupation] = useState("I'm self-employed");
   const [userGender, setUserGender] = useState<'man' | 'woman' | 'non_binary' | null>(null);
   const [userPreference, setUserPreference] = useState<'men' | 'women' | 'everyone' | null>(null);
   const [latitude, setLatitude] = useState<number | null>(null);
   const [longitude, setLongitude] = useState<number | null>(null);
   const [profilePhotos, setProfilePhotos] = useState<(string | null)[]>([null, null, null, null, null, null]);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [previewPhotoIndex, setPreviewPhotoIndex] = useState(0);
+
+  const worldsList = ['Design', 'Entrepreneurship', 'Startups'];
+  const vibesList = ['Ambitious', 'Adventurous', 'Skeptical'];
 
   // Load cached profile data on mount
   useEffect(() => {
@@ -39,6 +45,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
         const cachedName = await AsyncStorage.getItem('@profile_name');
         const cachedBio = await AsyncStorage.getItem('@profile_bio');
         const cachedAge = await AsyncStorage.getItem('@profile_age');
+        const cachedOccupation = await AsyncStorage.getItem('@profile_occupation');
         const cachedGender = await AsyncStorage.getItem('@profile_gender');
         const cachedPreference = await AsyncStorage.getItem('@profile_preference');
         const cachedLat = await AsyncStorage.getItem('@profile_latitude');
@@ -48,6 +55,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
         if (cachedName) setUserName(cachedName);
         if (cachedBio) setUserBio(cachedBio);
         if (cachedAge) setUserAge(cachedAge);
+        if (cachedOccupation) setUserOccupation(cachedOccupation);
         if (cachedGender) setUserGender(cachedGender as any);
         if (cachedPreference) setUserPreference(cachedPreference as any);
         if (cachedLat) setLatitude(Number(cachedLat));
@@ -55,30 +63,36 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
 
         if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
           // Sync live PostGIS location data
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from('profiles')
-            .select('location')
+            .select('location, full_name, bio, age, gender, preference, photos')
             .eq('id', session.user.id)
             .single();
 
-          if (data && data.location) {
-            if (typeof data.location === 'object' && data.location.coordinates) {
+          if (data) {
+            if (data.full_name) setUserName(data.full_name);
+            if (data.bio) setUserBio(data.bio);
+            if (data.age) setUserAge(String(data.age));
+            if (data.gender) setUserGender(data.gender);
+            if (data.preference) setUserPreference(data.preference);
+            if (data.photos && data.photos.length > 0) {
+              const padded = [...data.photos];
+              while (padded.length < 6) padded.push(null);
+              setProfilePhotos(padded);
+            }
+            if (data.location && typeof data.location === 'object' && data.location.coordinates) {
               const lng = data.location.coordinates[0];
               const lat = data.location.coordinates[1];
               setLatitude(lat);
               setLongitude(lng);
-              await AsyncStorage.setItem('@profile_latitude', String(lat));
-              await AsyncStorage.setItem('@profile_longitude', String(lng));
             }
           }
-        }
-
-        if (cachedPhotos) {
+        } else if (cachedPhotos) {
           setProfilePhotos(JSON.parse(cachedPhotos));
         } else {
-          // Default placeholder setup for demo feedback
+          // Default placeholder setup
           const defaultPhotos = [
-            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500',
+            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600',
             null,
             null,
             null,
@@ -99,6 +113,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
     name: string,
     bio: string,
     age: string,
+    occupationVal: string,
     genderVal: 'man' | 'woman' | 'non_binary' | null,
     preferenceVal: 'men' | 'women' | 'everyone' | null,
     latVal: number | null,
@@ -109,6 +124,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
       await AsyncStorage.setItem('@profile_name', name);
       await AsyncStorage.setItem('@profile_bio', bio);
       await AsyncStorage.setItem('@profile_age', age);
+      await AsyncStorage.setItem('@profile_occupation', occupationVal);
       await AsyncStorage.setItem('@profile_gender', genderVal || '');
       await AsyncStorage.setItem('@profile_preference', preferenceVal || '');
       await AsyncStorage.setItem('@profile_latitude', latVal ? String(latVal) : '');
@@ -140,8 +156,6 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
     }
   };
 
-
-
   const handlePhotoSelect = async (index: number) => {
     try {
       const result = await launchImageLibrary({
@@ -159,23 +173,25 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
 
       setUploadingIndex(index);
 
-      // Perform upload
-      if (!selectedAsset.base64) {
-        throw new Error('No base64 data returned from image picker.');
-      }
+      let returnedUrl = selectedAsset.uri;
 
-      const returnedUrl = await uploadProfilePhoto(
-        session?.user?.id || 'demo-user',
-        selectedAsset.base64,
-        selectedAsset.type || 'image/jpeg'
-      );
+      if (isSupabaseConfigured && !isDemoMode) {
+        if (!selectedAsset.base64) {
+          throw new Error('No base64 data returned from image picker.');
+        }
+        returnedUrl = await uploadProfilePhoto(
+          session?.user?.id || 'demo-user',
+          selectedAsset.base64,
+          selectedAsset.type || 'image/jpeg'
+        );
+      }
 
       const updatedPhotos = [...profilePhotos];
       updatedPhotos[index] = returnedUrl;
       setProfilePhotos(updatedPhotos);
-      await saveProfileData(userName, userBio, userAge, userGender, userPreference, latitude, longitude, updatedPhotos);
+      await saveProfileData(userName, userBio, userAge, userOccupation, userGender, userPreference, latitude, longitude, updatedPhotos);
 
-      Alert.alert('Upload Successful', `Photo slot ${index + 1} updated successfully!`);
+      Alert.alert('Success', `Photo ${index + 1} updated!`);
     } catch (err: any) {
       Alert.alert('Upload Error', err.message || 'Unable to upload photo.');
     } finally {
@@ -184,7 +200,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
   };
 
   const handlePhotoDelete = async (index: number) => {
-    Alert.alert('Delete Photo', 'Are you sure you want to remove this profile photo?', [
+    Alert.alert('Delete Photo', 'Are you sure you want to remove this photo?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -193,191 +209,358 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
           const updatedPhotos = [...profilePhotos];
           updatedPhotos[index] = null;
           setProfilePhotos(updatedPhotos);
-          await saveProfileData(userName, userBio, userAge, userGender, userPreference, latitude, longitude, updatedPhotos);
+          await saveProfileData(userName, userBio, userAge, userOccupation, userGender, userPreference, latitude, longitude, updatedPhotos);
         },
       },
     ]);
   };
 
+  const activePhotos = profilePhotos.filter((p): p is string => p !== null);
+  const displayName = userName.trim() || 'Pete';
+  const displayHandle = `@${displayName.toLowerCase().replace(/\s+/g, '')}`;
+  const displayBio = userBio.trim() || 'Marketing director, amateur photographer, traveller, family guy';
+
   return (
-    <ScrollView contentContainerStyle={styles.tabContentScroll}>
-      {/* Upper Profile Info */}
-      <View style={styles.profileHeaderCard}>
-        <Text style={styles.profileHeaderTitle}>Setup Profile</Text>
-        <Text style={styles.profileHeaderDescription}>
-          Build your tinder-style profile grid. Tap any slot to add photos. The first slot represents your primary photo.
-        </Text>
+    <ScrollView contentContainerStyle={styles.tabContentScroll} showsVerticalScrollIndicator={false}>
+      {/* Top Mode Segmented Bar */}
+      <View style={styles.segmentedControl}>
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'preview' && styles.segmentBtnActive]}
+          onPress={() => setActiveTab('preview')}
+        >
+          <Eye size={16} color={activeTab === 'preview' ? COLORS.textDark : COLORS.textPrimary} />
+          <Text style={[styles.segmentBtnText, activeTab === 'preview' && styles.segmentBtnTextActive]}>
+            Preview Card
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.segmentBtn, activeTab === 'edit' && styles.segmentBtnActive]}
+          onPress={() => setActiveTab('edit')}
+        >
+          <Edit3 size={16} color={activeTab === 'edit' ? COLORS.textDark : COLORS.textPrimary} />
+          <Text style={[styles.segmentBtnText, activeTab === 'edit' && styles.segmentBtnTextActive]}>
+            Edit Profile
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Tinder-style Photo Grid */}
-      <View style={styles.tinderGrid}>
-        {profilePhotos.map((photoUri, index) => {
-          const isPrimary = index === 0;
-          return (
-            <View
-              key={index}
-              style={[
-                styles.photoSlot,
-                isPrimary ? styles.primaryPhotoSlot : styles.standardPhotoSlot,
-              ]}
-            >
-              {uploadingIndex === index ? (
-                <View style={styles.slotLoader}>
-                  <ActivityIndicator size="small" color={COLORS.primary} />
+      {activeTab === 'preview' ? (
+        /* EDITORIAL PREVIEW CARD (MATCHING USER SCREENSHOT) */
+        <View style={styles.previewContainer}>
+          {/* Main Photo Card */}
+          <View style={styles.editorialPhotoWrapper}>
+            <Image
+              source={{
+                uri: activePhotos[previewPhotoIndex] || activePhotos[0] || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600',
+              }}
+              style={styles.editorialHeroPhoto}
+            />
+
+            {activePhotos.length > 1 && (
+              <View style={styles.previewClickZones}>
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={() => {
+                    if (previewPhotoIndex > 0) setPreviewPhotoIndex(previewPhotoIndex - 1);
+                  }}
+                />
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={() => {
+                    if (previewPhotoIndex < activePhotos.length - 1) {
+                      setPreviewPhotoIndex(previewPhotoIndex + 1);
+                    }
+                  }}
+                />
+              </View>
+            )}
+
+            {activePhotos.length > 1 && (
+              <View style={styles.previewIndicators}>
+                {activePhotos.map((_, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.previewPip,
+                      previewPhotoIndex === idx && styles.previewPipActive,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+
+          {/* Editorial Content Surface */}
+          <View style={styles.editorialDetailsCard}>
+            {/* Name & Handle */}
+            <View style={styles.editorialNameRow}>
+              <Text style={styles.editorialName}>
+                {displayName} <Text style={styles.editorialAge}>{userAge || '26'}</Text>
+              </Text>
+              <Text style={styles.editorialHandle}>{displayHandle}</Text>
+            </View>
+
+            {/* INTRO */}
+            <View style={styles.editorialSection}>
+              <Text style={styles.editorialLabel}>INTRO</Text>
+              <Text style={styles.editorialIntroText}>{displayBio}</Text>
+            </View>
+
+            {/* OCCUPATION */}
+            <View style={styles.editorialSection}>
+              <Text style={styles.editorialLabel}>OCCUPATION</Text>
+              <View style={styles.editorialPill}>
+                <Text style={styles.editorialPillText}>{userOccupation}</Text>
+              </View>
+            </View>
+
+            {/* WORLDS & VIBES Columns */}
+            <View style={styles.editorialGridRow}>
+              <View style={styles.editorialColumn}>
+                <Text style={styles.editorialLabel}>WORLDS</Text>
+                {worldsList.map((w, i) => (
+                  <Text key={i} style={styles.editorialItemText}>
+                    {w}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.editorialColumn}>
+                <Text style={styles.editorialLabel}>VIBES</Text>
+                {vibesList.map((v, i) => (
+                  <Text key={i} style={styles.editorialItemText}>
+                    {v}
+                  </Text>
+                ))}
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : (
+        /* EDIT PROFILE & PHOTOS */
+        <View style={styles.editSection}>
+          {/* Primary Cover Slot */}
+          <Text style={styles.editSectionHeading}>PRIMARY COVER PHOTO</Text>
+          <View style={styles.primaryCoverBox}>
+            {uploadingIndex === 0 ? (
+              <View style={styles.slotLoader}>
+                <ActivityIndicator size="large" color={COLORS.accent} />
+              </View>
+            ) : profilePhotos[0] ? (
+              <View style={styles.coverImageContainer}>
+                <Image source={{ uri: profilePhotos[0] }} style={styles.coverImage} />
+                <View style={styles.coverBadge}>
+                  <Text style={styles.coverBadgeText}>PRIMARY COVER</Text>
                 </View>
-              ) : photoUri ? (
-                <View style={styles.slotImageContainer}>
-                  <Image source={{ uri: photoUri }} style={styles.slotImage} />
-                  {isPrimary && (
-                    <View style={styles.primaryBadge}>
-                      <Text style={styles.primaryBadgeText}>PRIMARY</Text>
-                    </View>
-                  )}
+                <View style={styles.coverBtnsRow}>
                   <TouchableOpacity
-                    style={styles.deleteBadge}
-                    onPress={() => handlePhotoDelete(index)}
+                    style={styles.changeBtn}
+                    onPress={() => handlePhotoSelect(0)}
                   >
-                    <Text style={styles.deleteBadgeText}>✕</Text>
+                    <Camera size={14} color="#FFFFFF" />
+                    <Text style={styles.changeBtnText}>Change</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteBtn}
+                    onPress={() => handlePhotoDelete(0)}
+                  >
+                    <Text style={styles.deleteBtnText}>✕</Text>
                   </TouchableOpacity>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.uploadTrigger}
-                  onPress={() => handlePhotoSelect(index)}
-                >
-                  <Text style={styles.plusIcon}>+</Text>
-                  <Text style={styles.uploadText}>{isPrimary ? 'Add Primary' : 'Add Photo'}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Bio Details */}
-      <View style={styles.profileForm}>
-        <Text style={styles.formSectionTitle}>About Me</Text>
-
-        <View style={styles.formInputGroup}>
-          <Text style={styles.formLabel}>Name</Text>
-          <TextInput
-            style={styles.formInput}
-            placeholder="e.g. Liam, Jessica"
-            placeholderTextColor={COLORS.textMuted}
-            value={userName}
-            onChangeText={(text) => {
-              setUserName(text);
-              saveProfileData(text, userBio, userAge, userGender, userPreference, latitude, longitude, profilePhotos);
-            }}
-          />
-        </View>
-
-        <View style={styles.formInputRow}>
-          <View style={[styles.formInputGroup, { flex: 1 }]}>
-            <Text style={styles.formLabel}>Age</Text>
-            <TextInput
-              style={styles.formInput}
-              placeholder="e.g. 25"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="numeric"
-              value={userAge}
-              onChangeText={(text) => {
-                setUserAge(text);
-                saveProfileData(userName, userBio, text, userGender, userPreference, latitude, longitude, profilePhotos);
-              }}
-            />
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.emptyCoverTrigger}
+                onPress={() => handlePhotoSelect(0)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.emptyCoverIconBg}>
+                  <Camera size={26} color={COLORS.textDark} />
+                </View>
+                <Text style={styles.emptyCoverTitle}>Add Primary Photo</Text>
+                <Text style={styles.emptyCoverSub}>Your main portrait on cards</Text>
+              </TouchableOpacity>
+            )}
           </View>
-          <View style={[styles.formInputGroup, { flex: 2 }]}>
-            <Text style={styles.formLabel}>Linked Account</Text>
-            <View style={[styles.formInput, styles.disabledInput]}>
-              <Text style={styles.disabledInputText} numberOfLines={1}>
-                {session.user.email}
-              </Text>
-            </View>
-          </View>
-        </View>
 
-        {/* Gender Selection */}
-        <View style={styles.formInputGroup}>
-          <Text style={styles.formLabel}>Gender</Text>
-          <View style={styles.pillContainer}>
-            {(['man', 'woman', 'non_binary'] as const).map((g) => {
-              const label = g === 'man' ? 'Man' : g === 'woman' ? 'Woman' : 'Non-binary';
-              const isSelected = userGender === g;
+          {/* Additional Photos Horizontal Strip */}
+          <Text style={[styles.editSectionHeading, { marginTop: 24 }]}>
+            ADDITIONAL PHOTOS ({profilePhotos.slice(1).filter(Boolean).length}/5)
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.additionalPhotosScroll}
+          >
+            {[1, 2, 3, 4, 5].map((index) => {
+              const photoUri = profilePhotos[index];
               return (
-                <TouchableOpacity
-                  key={g}
-                  style={[styles.pillButton, isSelected && styles.pillButtonActive]}
-                  onPress={() => {
-                    setUserGender(g);
-                    saveProfileData(userName, userBio, userAge, g, userPreference, latitude, longitude, profilePhotos);
-                  }}
-                >
-                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
+                <View key={index} style={styles.additionalSlot}>
+                  {uploadingIndex === index ? (
+                    <View style={styles.slotLoader}>
+                      <ActivityIndicator size="small" color={COLORS.accent} />
+                    </View>
+                  ) : photoUri ? (
+                    <View style={styles.slotImageContainer}>
+                      <Image source={{ uri: photoUri }} style={styles.slotImage} />
+                      <TouchableOpacity
+                        style={styles.additionalDeleteBtn}
+                        onPress={() => handlePhotoDelete(index)}
+                      >
+                        <Text style={styles.deleteBtnText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.additionalUploadTrigger}
+                      onPress={() => handlePhotoSelect(index)}
+                      activeOpacity={0.7}
+                    >
+                      <Camera size={18} color={COLORS.textDarkSecondary} strokeWidth={1.8} />
+                      <Text style={styles.additionalUploadText}>Add</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               );
             })}
-          </View>
-        </View>
+          </ScrollView>
 
-        {/* Preference Selection */}
-        <View style={styles.formInputGroup}>
-          <Text style={styles.formLabel}>Show Me</Text>
-          <View style={styles.pillContainer}>
-            {(['men', 'women', 'everyone'] as const).map((p) => {
-              const label = p === 'men' ? 'Men' : p === 'women' ? 'Women' : 'Everyone';
-              const isSelected = userPreference === p;
-              return (
-                <TouchableOpacity
-                  key={p}
-                  style={[styles.pillButton, isSelected && styles.pillButtonActive]}
-                  onPress={() => {
-                    setUserPreference(p);
-                    saveProfileData(userName, userBio, userAge, userGender, p, latitude, longitude, profilePhotos);
+          {/* Profile Form Details */}
+          <View style={styles.profileFormCard}>
+            <Text style={styles.formCardHeading}>About You</Text>
+
+            {/* Name */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Name</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. Pete, Sarah"
+                placeholderTextColor={COLORS.textMuted}
+                value={userName}
+                onChangeText={(text) => {
+                  setUserName(text);
+                  saveProfileData(text, userBio, userAge, userOccupation, userGender, userPreference, latitude, longitude, profilePhotos);
+                }}
+              />
+            </View>
+
+            {/* Age & Occupation Row */}
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={[styles.inputGroup, { flex: 1 }]}>
+                <Text style={styles.inputLabel}>Age</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="25"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="numeric"
+                  value={userAge}
+                  onChangeText={(text) => {
+                    setUserAge(text);
+                    saveProfileData(userName, userBio, text, userOccupation, userGender, userPreference, latitude, longitude, profilePhotos);
                   }}
-                >
-                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                />
+              </View>
+              <View style={[styles.inputGroup, { flex: 2 }]}>
+                <Text style={styles.inputLabel}>Occupation</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Marketing Director"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={userOccupation}
+                  onChangeText={(text) => {
+                    setUserOccupation(text);
+                    saveProfileData(userName, userBio, userAge, text, userGender, userPreference, latitude, longitude, profilePhotos);
+                  }}
+                />
+              </View>
+            </View>
+
+            {/* Bio / Intro */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Intro Bio</Text>
+              <TextInput
+                style={[styles.textInput, styles.textArea]}
+                placeholder="Write an intro in your own voice..."
+                placeholderTextColor={COLORS.textMuted}
+                multiline
+                numberOfLines={4}
+                value={userBio}
+                onChangeText={(text) => {
+                  setUserBio(text);
+                  saveProfileData(userName, text, userAge, userOccupation, userGender, userPreference, latitude, longitude, profilePhotos);
+                }}
+              />
+            </View>
+
+            {/* Gender Selection */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>I am a</Text>
+              <View style={styles.pillContainer}>
+                {(['man', 'woman', 'non_binary'] as const).map((g) => {
+                  const label = g === 'man' ? 'Man' : g === 'woman' ? 'Woman' : 'Non-binary';
+                  const isSelected = userGender === g;
+                  return (
+                    <TouchableOpacity
+                      key={g}
+                      style={[styles.pillButton, isSelected && styles.pillButtonActive]}
+                      onPress={() => {
+                        setUserGender(g);
+                        saveProfileData(userName, userBio, userAge, userOccupation, g, userPreference, latitude, longitude, profilePhotos);
+                      }}
+                    >
+                      <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Preference Selection */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Interested in</Text>
+              <View style={styles.pillContainer}>
+                {(['men', 'women', 'everyone'] as const).map((p) => {
+                  const label = p === 'men' ? 'Men' : p === 'women' ? 'Women' : 'Everyone';
+                  const isSelected = userPreference === p;
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      style={[styles.pillButton, isSelected && styles.pillButtonActive]}
+                      onPress={() => {
+                        setUserPreference(p);
+                        saveProfileData(userName, userBio, userAge, userOccupation, userGender, p, latitude, longitude, profilePhotos);
+                      }}
+                    >
+                      <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Location */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Location</Text>
+              <View style={[styles.textInput, styles.disabledInput, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                <MapPin size={16} color={COLORS.textDarkSecondary} />
+                <Text style={styles.disabledInputText}>
+                  {latitude && longitude
+                    ? `${latitude.toFixed(3)}° N, ${longitude.toFixed(3)}° E`
+                    : 'Coordinates synced'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
+      )}
 
-        {/* Geolocation Section */}
-        <View style={styles.formInputGroup}>
-          <Text style={styles.formLabel}>My Location</Text>
-          <View style={[styles.formInput, styles.disabledInput, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
-            <MapPin size={16} color={COLORS.textMuted} />
-            <Text style={styles.disabledInputText}>
-              {latitude && longitude
-                ? `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E`
-                : 'Location not set'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.formInputGroup}>
-          <Text style={styles.formLabel}>Short Bio</Text>
-          <TextInput
-            style={[styles.formInput, styles.formTextArea]}
-            placeholder="Tell others about yourself..."
-            placeholderTextColor={COLORS.textMuted}
-            multiline
-            numberOfLines={4}
-            value={userBio}
-            onChangeText={(text) => {
-              setUserBio(text);
-              saveProfileData(userName, text, userAge, userGender, userPreference, latitude, longitude, profilePhotos);
-            }}
-          />
-        </View>
-      </View>
-
-      <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+      {/* Logout */}
+      <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.8}>
         <Text style={styles.logoutBtnText}>Log Out Session</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -386,47 +569,304 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
 
 const styles = StyleSheet.create({
   tabContentScroll: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: 16,
+    paddingBottom: 110,
     backgroundColor: COLORS.bg,
   },
-  profileHeaderCard: {
-    marginBottom: 24,
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: RADIUS.pill,
+    padding: 4,
+    marginBottom: 20,
   },
-  profileHeaderTitle: {
+  segmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: RADIUS.pill,
+  },
+  segmentBtnActive: {
+    backgroundColor: COLORS.cardBgIvory,
+    ...SHADOWS.sm,
+  },
+  segmentBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  segmentBtnTextActive: {
+    color: COLORS.textDark,
+    fontWeight: '800',
+  },
+  previewContainer: {
+    marginBottom: 20,
+  },
+  editorialPhotoWrapper: {
+    width: '100%',
+    height: 420,
+    borderRadius: 24,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: COLORS.cardBg,
+    ...SHADOWS.md,
+  },
+  editorialHeroPhoto: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  previewClickZones: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    zIndex: 2,
+  },
+  previewIndicators: {
+    position: 'absolute',
+    top: 14,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    gap: 6,
+    zIndex: 5,
+  },
+  previewPip: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  previewPipActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  editorialDetailsCard: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 24,
+    padding: 24,
+    marginTop: 16,
+    ...SHADOWS.sm,
+  },
+  editorialNameRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  editorialName: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    letterSpacing: -0.5,
+  },
+  editorialAge: {
+    fontSize: 24,
+    fontWeight: '400',
+    color: COLORS.textDarkSecondary,
+  },
+  editorialHandle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textDarkSecondary,
+  },
+  editorialSection: {
+    marginBottom: 22,
+  },
+  editorialLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: COLORS.textDarkSecondary,
+    marginBottom: 8,
+  },
+  editorialIntroText: {
     fontSize: 22,
+    lineHeight: 30,
+    color: COLORS.textDark,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontWeight: '400',
+  },
+  editorialPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: RADIUS.pill,
+  },
+  editorialPillText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textDark,
+  },
+  editorialGridRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 20,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  editorialColumn: {
+    flex: 1,
+  },
+  editorialItemText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    marginBottom: 4,
+    lineHeight: 22,
+  },
+  editSection: {
+    marginBottom: 20,
+  },
+  editSectionHeading: {
+    fontSize: 11,
     fontWeight: '800',
     color: COLORS.textPrimary,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    letterSpacing: 1,
+    marginBottom: 8,
   },
-  profileHeaderDescription: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    lineHeight: 18,
-  },
-  tinderGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 30,
-  },
-  photoSlot: {
-    backgroundColor: COLORS.cardBgHover,
-    borderRadius: RADIUS.md,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    borderStyle: 'dashed',
+  primaryCoverBox: {
+    width: '100%',
+    height: 320,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 22,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderStyle: 'dashed',
+    ...SHADOWS.md,
   },
-  primaryPhotoSlot: {
-    width: '64%',
-    aspectRatio: 0.78,
+  coverImageContainer: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
   },
-  standardPhotoSlot: {
-    width: '32%',
-    aspectRatio: 0.78,
+  coverImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  coverBadge: {
+    position: 'absolute',
+    bottom: 14,
+    left: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: RADIUS.pill,
+  },
+  coverBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  coverBtnsRow: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  changeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+  },
+  changeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  deleteBtn: {
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emptyCoverTrigger: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  emptyCoverIconBg: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    ...SHADOWS.sm,
+  },
+  emptyCoverTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 4,
+  },
+  emptyCoverSub: {
+    fontSize: 13,
+    color: COLORS.textDarkSecondary,
+    textAlign: 'center',
+  },
+  additionalPhotosScroll: {
+    gap: 12,
+    paddingVertical: 4,
+  },
+  additionalSlot: {
+    width: 96,
+    height: 132,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderStyle: 'dashed',
+    ...SHADOWS.sm,
+  },
+  additionalUploadTrigger: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  additionalUploadText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
+  },
+  additionalDeleteBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   slotImageContainer: {
     width: '100%',
@@ -438,203 +878,103 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
-  primaryBadge: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: RADIUS.sm,
-  },
-  primaryBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  deleteBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(16, 24, 40, 0.8)',
-    width: 24,
-    height: 24,
-    borderRadius: RADIUS.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-  },
-  deleteBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  uploadTrigger: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-  },
-  plusIcon: {
-    fontSize: 28,
-    color: COLORS.textMuted,
-    fontWeight: '300',
-    marginBottom: 4,
-  },
-  uploadText: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-    fontWeight: '700',
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
   slotLoader: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  profileForm: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: RADIUS.md,
-    padding: 20,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    marginBottom: 24,
+  profileFormCard: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 24,
+    padding: 22,
+    marginTop: 20,
+    ...SHADOWS.sm,
   },
-  formSectionTitle: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: COLORS.textPrimary,
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  formInputGroup: {
+  formCardHeading: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.textDark,
     marginBottom: 16,
   },
-  formInputRow: {
-    flexDirection: 'row',
-    gap: 12,
+  inputGroup: {
     marginBottom: 16,
   },
-  formLabel: {
+  inputLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: COLORS.textSecondary,
+    color: COLORS.textDarkSecondary,
     marginBottom: 6,
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
   },
-  formInput: {
-    backgroundColor: COLORS.bg,
+  textInput: {
+    backgroundColor: COLORS.cardBg,
     borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
     paddingHorizontal: 16,
-    color: COLORS.textPrimary,
-    fontSize: 14,
-    height: 48,
+    color: COLORS.textDark,
+    fontSize: 15,
+    height: 50,
+    borderWidth: 1,
+    borderColor: 'rgba(94, 88, 115, 0.12)',
   },
   disabledInput: {
     justifyContent: 'center',
-    opacity: 0.5,
+    opacity: 0.7,
   },
   disabledInputText: {
-    color: COLORS.textMuted,
+    color: COLORS.textDarkSecondary,
     fontSize: 14,
   },
-  formTextArea: {
-    height: 90,
-    paddingTop: 12,
+  textArea: {
+    height: 96,
+    paddingTop: 14,
     textAlignVertical: 'top',
-  },
-  logoutBtn: {
-    height: 50,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.cardBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoutBtnText: {
-    color: COLORS.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1.28,
   },
   pillContainer: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 8,
+    marginTop: 4,
     flexWrap: 'wrap',
   },
   pillButton: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADIUS.pill,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
     minWidth: 90,
+    borderWidth: 1,
+    borderColor: 'rgba(94, 88, 115, 0.12)',
   },
   pillButtonActive: {
     backgroundColor: COLORS.accent,
     borderColor: COLORS.accent,
   },
   pillText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
   },
   pillTextActive: {
-    color: '#FFFFFF',
+    color: COLORS.textDark,
+    fontWeight: '900',
   },
-  locationSettingsCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: RADIUS.sm,
+  logoutBtn: {
+    height: 50,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.cardBgIvory,
     borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    padding: 12,
-    marginTop: 8,
-  },
-  locationCoordsRow: {
-    flexDirection: 'row',
+    borderColor: '#EF4444',
     alignItems: 'center',
-    gap: 6,
-    flex: 1,
+    justifyContent: 'center',
+    marginTop: 10,
+    ...SHADOWS.sm,
   },
-  locationCoordsText: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-  },
-  locationRefreshBtn: {
-    backgroundColor: COLORS.cardBgHover,
-    borderRadius: RADIUS.sm,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  locationRefreshBtnText: {
-    color: COLORS.textPrimary,
-    fontSize: 10,
+  logoutBtnText: {
+    color: '#EF4444',
+    fontSize: 14,
     fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
 });

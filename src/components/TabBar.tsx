@@ -1,9 +1,7 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View, Platform } from 'react-native';
-import { Home, Heart, User } from 'lucide-react-native';
-
-const ACTIVE_BLUE = '#F54E00'; // PostHog Orange
-const ICON_INACTIVE = '#4D4F46'; // Olive Ink
+import { Compass, MessageCircle, User } from 'lucide-react-native';
+import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 
 interface TabBarProps {
   activeTab: 'profile' | 'matches' | 'share';
@@ -12,44 +10,37 @@ interface TabBarProps {
 
 export default function TabBar({ activeTab, setActiveTab }: TabBarProps) {
   const tabs = [
-    { key: 'share' as const, icon: Home },
-    { key: 'matches' as const, icon: Heart },
-    { key: 'profile' as const, icon: User },
+    { key: 'share' as const, icon: Compass, label: 'Discover' },
+    { key: 'matches' as const, icon: MessageCircle, label: 'Chats' },
+    { key: 'profile' as const, icon: User, label: 'Profile' },
   ];
 
   return (
-    <View style={styles.outerBackground}>
-      <View style={styles.shadowWrapper}>
-        <View style={styles.pill}>
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.key;
-            const Icon = tab.icon;
+    <View style={styles.outerBackground} pointerEvents="box-none">
+      <View style={styles.pill}>
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+          const Icon = tab.icon;
 
-            return (
-              <TouchableOpacity
-                key={tab.key}
-                onPress={() => setActiveTab(tab.key)}
-                style={styles.tabTouchable}
-                activeOpacity={0.7}
-              >
-                {isActive ? (
-                  <View style={styles.activeIconWrapper}>
-                    <Icon size={24} color={ACTIVE_BLUE} fill={ACTIVE_BLUE} strokeWidth={2.2} />
-                  </View>
-                ) : (
-                  <Icon size={24} color={ICON_INACTIVE} strokeWidth={2} style={styles.inactiveIcon} />
-                )}
-
-                {/* Bevelled connector blob under the active tab (pointing upwards) */}
-                {isActive && (
-                  <View style={styles.pointerClip}>
-                    <View style={styles.pointerBlob} />
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              onPress={() => setActiveTab(tab.key)}
+              style={styles.tabTouchable}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.iconWrapper, isActive && styles.activeIconWrapper]}>
+                <Icon
+                  size={24}
+                  color={isActive ? COLORS.textDark : COLORS.textDarkSecondary}
+                  strokeWidth={isActive ? 2.5 : 2}
+                  fill={isActive && tab.key === 'matches' ? 'rgba(35, 29, 56, 0.15)' : 'transparent'}
+                />
+                {isActive && <View style={styles.activeDot} />}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -62,58 +53,49 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'transparent',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-  },
-  shadowWrapper: {
-    // PostHog uses borders rather than shadows for depth
-    elevation: 0,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
+    alignItems: 'center',
+    zIndex: 100,
   },
   pill: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    backgroundColor: '#fdfdf8', // Warm Parchment
-    borderRadius: 32,
-    borderWidth: 1.5,
-    borderColor: '#bfc1b7', // Sage Border
-    height: 56,
-    paddingHorizontal: 10,
-    overflow: 'hidden', // clips pointer clip boundary at the bottom edge
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.pill,
+    height: 62,
+    width: '100%',
+    maxWidth: 380,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+    ...SHADOWS.lg,
   },
   tabTouchable: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
     height: '100%',
   },
-  activeIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 16,
+  iconWrapper: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
-  inactiveIcon: {},
-  // Bevelled connector pointer clip pointing UPWARDS
-  pointerClip: {
+  activeIconWrapper: {
+    backgroundColor: COLORS.accent,
+    ...SHADOWS.sm,
+  },
+  activeDot: {
     position: 'absolute',
-    bottom: 0, // sits at the bottom edge inside the pill
-    width: 24,
-    height: 12,
-    overflow: 'hidden',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  pointerBlob: {
-    width: 24,
-    height: 24,
-    borderRadius: 6, // softens the corners -> bevelled look
-    backgroundColor: ACTIVE_BLUE,
-    transform: [{ rotate: '45deg' }],
-    marginTop: 5, // pushes center down so only the top corner peaks up
+    bottom: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.textDark,
   },
 });
-

@@ -7,13 +7,15 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Heart } from 'lucide-react-native';
+import { Heart, Search, MessageCircle, Sparkles } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { COLORS, RADIUS } from '../shared/theme';
-import { DBProfile, MatchRecord, MessageRecord } from '../shared/types';
+import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
+import { DBProfile, MatchRecord, MessageRecord, getMatchArchetype } from '../shared/types';
+import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
 import {
   DEMO_PROFILES,
   DEMO_MATCHES,
@@ -48,6 +50,8 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [profiles, setProfiles] = useState<Record<string, DBProfile>>({});
   const [messages, setMessages] = useState<MessageRecord[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchInput, setShowSearchInput] = useState(false);
 
   const currentUserId = session?.user?.id || 'demo-guest-user';
 
@@ -146,9 +150,6 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     fetchData();
 
     if (!isDemoMode && isSupabaseConfigured) {
-      console.log('🔌 Subscribing to Supabase Realtime for matches list...');
-      
-      // Explicitly listen to target tables to avoid wildcard public schema broadcasts
       const channel = supabase
         .channel('matches_list_updates')
         .on(
@@ -156,7 +157,6 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
           { event: 'INSERT', schema: 'public', table: 'messages' },
           (payload) => {
             const newMsg = payload.new as MessageRecord;
-            console.log('🔥 [REALTIME TRIGGERED] New message in inbox:', newMsg.content);
             setMessages((prev) => {
               const filtered = prev.filter((m) => m.id !== newMsg.id);
               return [...filtered, newMsg];
@@ -167,7 +167,6 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
           'postgres_changes',
           { event: '*', schema: 'public', table: 'matches' },
           (payload) => {
-            console.log('🔥 [REALTIME TRIGGERED] Match event in matches list:', payload.eventType);
             if (payload.eventType === 'UPDATE') {
               const updatedMatch = payload.new as MatchRecord;
               if (updatedMatch.status !== 'active') {
@@ -187,7 +186,6 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
         .subscribe();
 
       return () => {
-        console.log('🔌 Unsubscribing from matches list Supabase Realtime channel');
         supabase.removeChannel(channel);
       };
     }
@@ -205,10 +203,10 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
         matchId: match.id,
         profile: otherProfile || {
           id: otherUserId,
-          full_name: 'Loading User...',
-          age: 20,
+          full_name: 'Friend',
+          age: 22,
           bio: '',
-          photos: ['https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150'],
+          photos: ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300'],
         },
         lastMessage,
         score: match.similarity_score,
@@ -216,11 +214,14 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     })
     .filter((item) => item.profile !== undefined);
 
-  // Blended Lists:
-  // "New Matches" have no messages exchanged
-  const newMatches = matchedUsers.filter((mu) => !mu.lastMessage);
-  // "Conversations" have at least one message
-  const conversations = matchedUsers
+  // Filter with search if active
+  const filteredUsers = matchedUsers.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    return item.profile.full_name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  const newMatches = filteredUsers.filter((mu) => !mu.lastMessage);
+  const conversations = filteredUsers
     .filter((mu) => !!mu.lastMessage)
     .sort((a, b) => {
       const timeA = new Date(a.lastMessage!.created_at).getTime();
@@ -237,86 +238,143 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={styles.loadingText}>Connecting to matches...</Text>
+        <Text style={styles.loadingText}>Finding your matches...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
+      {/* Top Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Chats</Text>
+        <TouchableOpacity
+          style={styles.searchIconButton}
+          onPress={() => setShowSearchInput(!showSearchInput)}
+          activeOpacity={0.8}
+        >
+          <Search size={20} color={COLORS.textPrimary} strokeWidth={2.2} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Input Bar (Expandable) */}
+      {showSearchInput && (
+        <View style={styles.searchBarContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search conversations..."
+            placeholderTextColor={COLORS.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+        </View>
+      )}
+
       {matchedUsers.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Heart size={48} color={COLORS.cardBorder} strokeWidth={1.5} style={{ marginBottom: 16 }} />
+          <View style={styles.emptyIconCircle}>
+            <Heart size={36} color={COLORS.accent} strokeWidth={2} fill={COLORS.accentLight} />
+          </View>
           <Text style={styles.emptyTitle}>No matches yet</Text>
           <Text style={styles.emptySubtitle}>
-            Share more Instagram Reels on the Home tab to compute similarity vectors and find matches!
+            Share more Instagram Reels to compute similarity vectors and discover people who share your vibe!
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {/* 1. Horizontal New Matches Carousel */}
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Horizontal Active Stories / New Matches */}
           {newMatches.length > 0 && (
-            <View style={styles.newMatchesSection}>
-              <Text style={styles.sectionTitle}>New Matches</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.newMatchesScroll}>
-                {newMatches.map((item) => (
-                  <TouchableOpacity
-                    key={item.matchId}
-                    style={styles.newMatchItem}
-                    onPress={() => {
-                      navigation.navigate('ProfileDetails', {
-                        profile: item.profile,
-                        activeChatMatchId: null,
-                        onChatNow: () => {
-                          const match = matches.find(
-                            (m) => m.user_a === item.profile.id || m.user_b === item.profile.id
-                          );
-                          if (match) {
-                            navigation.replace('Chat', {
-                              matchId: match.id,
-                              session,
-                              isDemoMode,
-                            });
-                          }
-                        },
-                      });
-                    }}
-                  >
-                    <View style={styles.avatarWrapper}>
-                      <Image source={{ uri: item.profile.photos[0] }} style={styles.newMatchAvatar} />
-                      <View style={styles.scoreBadge}>
-                        <Text style={styles.scoreText}>{(item.score * 100).toFixed(0)}%</Text>
+            <View style={styles.storiesSection}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.storiesScroll}
+              >
+                {newMatches.map((item) => {
+                  const archetype = getMatchArchetype(item.score);
+                  return (
+                    <TouchableOpacity
+                      key={item.matchId}
+                      style={styles.storyItem}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        navigation.navigate('ProfileDetails', {
+                          profile: item.profile,
+                          score: item.score,
+                          activeChatMatchId: null,
+                          onChatNow: () => {
+                            const match = matches.find(
+                              (m) => m.user_a === item.profile.id || m.user_b === item.profile.id
+                            );
+                            if (match) {
+                              navigation.replace('Chat', {
+                                matchId: match.id,
+                                session,
+                                isDemoMode,
+                              });
+                            }
+                          },
+                        });
+                      }}
+                    >
+                      <View style={styles.storyAvatarWrapper}>
+                        <Image
+                          source={{
+                            uri:
+                              (item.profile.photos && item.profile.photos[0]) ||
+                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
+                          }}
+                          style={styles.storyAvatar}
+                        />
+                        <View style={styles.onlineDot} />
+                        {/* Lucide Archetype Icon Badge on Story Avatar */}
+                        <View style={[styles.storyArchetypeBadge, { backgroundColor: archetype.bgColor }]}>
+                          <ArchetypeIcon type={archetype.type} size={11} color={archetype.textColor} />
+                        </View>
                       </View>
-                    </View>
-                    <Text style={styles.newMatchName} numberOfLines={1}>
-                      {item.profile.full_name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text style={styles.storyName} numberOfLines={1}>
+                        {item.profile.full_name.split(' ')[0]}
+                      </Text>
+                      <Text style={styles.storyArchetypeLabel} numberOfLines={1}>
+                        {archetype.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           )}
 
-          {/* 2. Conversations List */}
-          <View style={styles.conversationsSection}>
-            <Text style={styles.sectionTitle}>Messages</Text>
+          {/* Main White Card for Active Conversations */}
+          <View style={styles.chatsCard}>
+            <Text style={styles.sectionLabel}>Active</Text>
+
             {conversations.length === 0 ? (
-              <View style={styles.noChatsCard}>
-                <Text style={styles.noChatsText}>No messages yet. Tap a new match above to start chatting!</Text>
+              <View style={styles.noChatsInner}>
+                <MessageCircle size={28} color={COLORS.textMuted} strokeWidth={1.8} />
+                <Text style={styles.noChatsText}>
+                  Tap any match above to start your first conversation!
+                </Text>
               </View>
             ) : (
               <View style={styles.conversationsList}>
-                {conversations.map((item) => {
+                {conversations.map((item, index) => {
                   const isMine = item.lastMessage.sender_id === currentUserId;
                   const parsed = parseReferredMessage(item.lastMessage.content);
                   const lastTextSnippet = parsed.isReferred
-                    ? `🎬 Shared ${parsed.url.includes('/reel/') ? 'Reel' : 'Post'}`
+                    ? `Shared ${parsed.url.includes('/reel/') ? 'Reel' : 'Post'}`
                     : parsed.message;
+                  const archetype = getMatchArchetype(item.score);
 
                   return (
                     <TouchableOpacity
                       key={item.matchId}
-                      style={styles.convoCard}
+                      style={[
+                        styles.convoRow,
+                        index < conversations.length - 1 && styles.convoRowDivider,
+                      ]}
+                      activeOpacity={0.7}
                       onPress={() =>
                         navigation.navigate('Chat', {
                           matchId: item.matchId,
@@ -325,18 +383,44 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
                         })
                       }
                     >
-                      <Image source={{ uri: item.profile.photos[0] }} style={styles.convoAvatar} />
+                      <View style={styles.convoAvatarWrapper}>
+                        <Image
+                          source={{
+                            uri:
+                              (item.profile.photos && item.profile.photos[0]) ||
+                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
+                          }}
+                          style={styles.convoAvatar}
+                        />
+                        <View style={styles.onlineDot} />
+                        {/* Lucide Archetype Badge on Chat Avatar */}
+                        <View style={[styles.convoArchetypeBadge, { backgroundColor: archetype.bgColor }]}>
+                          <ArchetypeIcon type={archetype.type} size={9} color={archetype.textColor} />
+                        </View>
+                      </View>
+
                       <View style={styles.convoDetails}>
-                        <View style={styles.convoRow}>
-                          <Text style={styles.convoName}>{item.profile.full_name}</Text>
+                        <View style={styles.convoTopLine}>
+                          <View style={styles.convoNameRow}>
+                            <Text style={styles.convoName}>{item.profile.full_name}</Text>
+                            {/* Lucide Archetype Pill Tag */}
+                            <ArchetypePillBadge archetype={archetype} size="sm" />
+                          </View>
                           <Text style={styles.convoTime}>
                             {formatMessageTime(item.lastMessage.created_at)}
                           </Text>
                         </View>
-                        <Text style={styles.convoLastMsg} numberOfLines={1}>
-                          {isMine ? 'You: ' : ''}
-                          {lastTextSnippet}
-                        </Text>
+                        <View style={styles.convoBottomLine}>
+                          <Text style={styles.convoLastMsg} numberOfLines={1}>
+                            {isMine ? 'You : ' : ''}
+                            {lastTextSnippet}
+                          </Text>
+                          {!isMine && (
+                            <View style={styles.unreadBadge}>
+                              <Text style={styles.unreadBadgeText}>1</Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
                     </TouchableOpacity>
                   );
@@ -355,6 +439,44 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bg,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
+  },
+  searchIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.sm,
+  },
+  searchBarContainer: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
+    ...SHADOWS.sm,
+  },
   loadingContainer: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -362,143 +484,233 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    fontSize: 14,
-    color: COLORS.textMuted,
-    marginTop: 12,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginTop: 14,
     fontWeight: '600',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    paddingTop: 10,
+    paddingBottom: 110,
   },
-  emptyContainer: {
-    flex: 1,
+  storiesSection: {
+    marginBottom: 20,
+  },
+  storiesScroll: {
+    paddingHorizontal: 24,
+    gap: 16,
+  },
+  storyItem: {
+    alignItems: 'center',
+    width: 66,
+  },
+  storyAvatarWrapper: {
+    position: 'relative',
+    padding: 3,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 35,
+    ...SHADOWS.sm,
+  },
+  storyAvatar: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: COLORS.success,
+    borderWidth: 2.5,
+    borderColor: COLORS.cardBg,
+  },
+  storyArchetypeBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 30,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: COLORS.textMuted,
-    textAlign: 'center',
-    lineHeight: 19,
-  },
-  newMatchesSection: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  newMatchesScroll: {
-    flexDirection: 'row',
-  },
-  newMatchItem: {
-    alignItems: 'center',
-    marginRight: 16,
-    width: 68,
-  },
-  avatarWrapper: {
-    position: 'relative',
-    marginBottom: 6,
-  },
-  newMatchAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: RADIUS.sm,
     borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
+    borderColor: COLORS.cardBg,
+    ...SHADOWS.sm,
   },
-  scoreBadge: {
-    position: 'absolute',
-    bottom: -6,
-    alignSelf: 'center',
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: COLORS.bg,
+  storyArchetypeEmoji: {
+    fontSize: 10,
   },
-  scoreText: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  newMatchName: {
-    fontSize: 12,
+  storyArchetypeLabel: {
+    fontSize: 10,
     fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  storyName: {
+    fontSize: 12,
+    fontWeight: '600',
     color: COLORS.textPrimary,
+    marginTop: 6,
     textAlign: 'center',
   },
-  conversationsSection: {
-    flex: 1,
-  },
-  noChatsCard: {
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    borderRadius: RADIUS.md,
+  chatsCard: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
+    marginHorizontal: 16,
     padding: 20,
+    paddingTop: 16,
+    ...SHADOWS.md,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
+    marginBottom: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  noChatsInner: {
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 10,
   },
   noChatsText: {
-    fontSize: 13,
-    color: COLORS.textMuted,
+    fontSize: 14,
+    color: COLORS.textDarkSecondary,
     textAlign: 'center',
-    lineHeight: 18,
+    maxWidth: 240,
+    lineHeight: 20,
   },
   conversationsList: {
-    gap: 12,
+    gap: 6,
   },
-  convoCard: {
+  convoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    borderRadius: RADIUS.md,
-    padding: 16,
+    paddingVertical: 12,
+  },
+  convoRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(94, 88, 115, 0.08)',
+  },
+  convoAvatarWrapper: {
+    position: 'relative',
+    marginRight: 14,
   },
   convoAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: RADIUS.sm,
-    marginRight: 14,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+  },
+  convoArchetypeBadge: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.cardBg,
+  },
+  convoArchetypeEmoji: {
+    fontSize: 9,
   },
   convoDetails: {
     flex: 1,
     justifyContent: 'center',
   },
-  convoRow: {
+  convoTopLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    alignItems: 'center',
     marginBottom: 4,
+  },
+  convoNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
   convoName: {
     fontSize: 15,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: COLORS.textDark,
+  },
+  archetypePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  archetypePillText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   convoTime: {
-    fontSize: 10,
-    color: COLORS.textMuted,
+    fontSize: 11,
+    color: COLORS.textDarkSecondary,
+    fontWeight: '500',
+  },
+  convoBottomLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   convoLastMsg: {
     fontSize: 13,
+    color: COLORS.textDarkSecondary,
+    flex: 1,
+    marginRight: 8,
+  },
+  unreadBadge: {
+    backgroundColor: COLORS.accent,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBadgeText: {
+    color: COLORS.textDark,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 36,
+  },
+  emptyIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: COLORS.cardBgIvory,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    ...SHADOWS.md,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 14,
     color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 21,
+    maxWidth: 280,
   },
 });

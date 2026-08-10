@@ -20,7 +20,7 @@ import { ArrowLeft, ArrowRight, Check, Camera, MapPin } from 'lucide-react-nativ
 import Geolocation from 'react-native-geolocation-service';
 
 import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { COLORS, RADIUS } from '../shared/theme';
+import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 
 interface ProfileOnboardingProps {
   session: any;
@@ -431,20 +431,69 @@ export default function ProfileOnboarding({
           <View style={styles.stepContent}>
             <Text style={styles.stepTitle}>Upload your photos</Text>
             <Text style={styles.stepSubtitle}>
-              Tap slots to upload photos. Slot 1 will be your primary profile photo.
+              Add a stunning primary cover photo, plus additional photos to complete your vibe.
             </Text>
 
-            <View style={styles.tinderGrid}>
-              {photos.map((photoUri, index) => {
-                const isPrimary = index === 0;
+            {/* Primary Cover Card */}
+            <Text style={styles.slotSectionLabel}>PRIMARY COVER PHOTO</Text>
+            <View style={styles.primaryCoverSlot}>
+              {uploadingIndex === 0 ? (
+                <View style={styles.slotLoader}>
+                  <ActivityIndicator size="large" color={COLORS.accent} />
+                  <Text style={styles.uploadingText}>Uploading photo...</Text>
+                </View>
+              ) : photos[0] ? (
+                <View style={styles.slotImageContainer}>
+                  <Image source={{ uri: photos[0] }} style={styles.slotImage} />
+                  <View style={styles.primaryCoverBadge}>
+                    <Text style={styles.primaryCoverBadgeText}>PRIMARY COVER</Text>
+                  </View>
+                  <View style={styles.coverActionButtons}>
+                    <TouchableOpacity
+                      style={styles.changeCoverBtn}
+                      onPress={() => handlePhotoSelect(0)}
+                    >
+                      <Camera size={14} color="#FFFFFF" />
+                      <Text style={styles.changeCoverBtnText}>Change</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteCoverBtn}
+                      onPress={() => handlePhotoDelete(0)}
+                    >
+                      <Text style={styles.deleteBadgeText}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.primaryUploadTrigger}
+                  onPress={() => handlePhotoSelect(0)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.primaryUploadIconBg}>
+                    <Camera size={28} color={COLORS.textDark} strokeWidth={2} />
+                  </View>
+                  <Text style={styles.primaryUploadTitle}>Add Primary Photo</Text>
+                  <Text style={styles.primaryUploadSubtitle}>
+                    This is the main portrait matches will see on your card
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Additional Photos Section */}
+            <Text style={[styles.slotSectionLabel, { marginTop: 24 }]}>
+              MORE PHOTOS ({photos.slice(1).filter(Boolean).length}/5)
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.secondaryPhotosScroll}
+            >
+              {[1, 2, 3, 4, 5].map((index) => {
+                const photoUri = photos[index];
                 return (
-                  <View
-                    key={index}
-                    style={[
-                      styles.photoSlot,
-                      isPrimary ? styles.primaryPhotoSlot : styles.standardPhotoSlot,
-                    ]}
-                  >
+                  <View key={index} style={styles.secondaryPhotoSlot}>
                     {uploadingIndex === index ? (
                       <View style={styles.slotLoader}>
                         <ActivityIndicator size="small" color={COLORS.accent} />
@@ -452,13 +501,8 @@ export default function ProfileOnboarding({
                     ) : photoUri ? (
                       <View style={styles.slotImageContainer}>
                         <Image source={{ uri: photoUri }} style={styles.slotImage} />
-                        {isPrimary && (
-                          <View style={styles.primaryBadge}>
-                            <Text style={styles.primaryBadgeText}>PRIMARY</Text>
-                          </View>
-                        )}
                         <TouchableOpacity
-                          style={styles.deleteBadge}
+                          style={styles.secondaryDeleteBtn}
                           onPress={() => handlePhotoDelete(index)}
                         >
                           <Text style={styles.deleteBadgeText}>✕</Text>
@@ -466,17 +510,18 @@ export default function ProfileOnboarding({
                       </View>
                     ) : (
                       <TouchableOpacity
-                        style={styles.uploadTrigger}
+                        style={styles.secondaryUploadTrigger}
                         onPress={() => handlePhotoSelect(index)}
+                        activeOpacity={0.7}
                       >
-                        <Camera size={20} color={COLORS.textMuted} strokeWidth={1.5} />
-                        <Text style={styles.uploadText}>{isPrimary ? 'Add Primary' : 'Add'}</Text>
+                        <Camera size={18} color={COLORS.textDarkSecondary} strokeWidth={1.8} />
+                        <Text style={styles.secondaryUploadText}>Add</Text>
                       </TouchableOpacity>
                     )}
                   </View>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
         );
       default:
@@ -615,65 +660,88 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     fontSize: 26,
-    fontWeight: '900',
+    fontWeight: '800',
     color: COLORS.textPrimary,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    marginBottom: 6,
+    letterSpacing: -0.4,
   },
   stepSubtitle: {
-    fontSize: 14,
-    color: COLORS.textMuted,
-    marginBottom: 32,
-    lineHeight: 20,
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    marginBottom: 28,
+    lineHeight: 22,
   },
   inputGroup: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   label: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textMuted,
     marginBottom: 8,
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
   },
   textInput: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADIUS.sm,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     color: COLORS.textPrimary,
     fontSize: 16,
     height: 52,
+    ...SHADOWS.sm,
   },
   textArea: {
     height: 120,
     paddingTop: 14,
     textAlignVertical: 'top',
   },
-  tinderGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 8,
+  slotSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.textDarkSecondary,
+    letterSpacing: 1,
+    marginBottom: 8,
   },
-  photoSlot: {
-    backgroundColor: COLORS.cardBgHover,
-    borderRadius: RADIUS.md,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    borderStyle: 'dashed',
+  primaryCoverSlot: {
+    width: '100%',
+    height: 320,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 22,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderStyle: 'dashed',
+    ...SHADOWS.md,
   },
-  primaryPhotoSlot: {
-    width: '64%',
-    aspectRatio: 0.78,
+  primaryUploadTrigger: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
   },
-  standardPhotoSlot: {
-    width: '32%',
-    aspectRatio: 0.78,
+  primaryUploadIconBg: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    ...SHADOWS.sm,
+  },
+  primaryUploadTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 4,
+  },
+  primaryUploadSubtitle: {
+    fontSize: 13,
+    color: COLORS.textDarkSecondary,
+    textAlign: 'center',
+    maxWidth: 240,
+    lineHeight: 18,
   },
   slotImageContainer: {
     width: '100%',
@@ -685,68 +753,110 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
-  primaryBadge: {
+  primaryCoverBadge: {
     position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: COLORS.accent,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: RADIUS.sm,
+    bottom: 14,
+    left: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: RADIUS.pill,
   },
-  primaryBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
+  primaryCoverBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
     color: '#FFFFFF',
-    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  deleteBadge: {
+  coverActionButtons: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(16, 24, 40, 0.8)',
-    width: 24,
-    height: 24,
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  changeCoverBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: RADIUS.pill,
+  },
+  changeCoverBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  deleteCoverBtn: {
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
   },
   deleteBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
   },
-  uploadTrigger: {
+  secondaryPhotosScroll: {
+    gap: 12,
+    paddingVertical: 4,
+  },
+  secondaryPhotoSlot: {
+    width: 96,
+    height: 132,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderStyle: 'dashed',
+    ...SHADOWS.sm,
+  },
+  secondaryUploadTrigger: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
     gap: 6,
   },
-  uploadText: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-    fontWeight: '800',
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  secondaryUploadText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
+  },
+  secondaryDeleteBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   slotLoader: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+  },
+  uploadingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textDarkSecondary,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.cardBorder,
+    paddingVertical: 18,
     backgroundColor: COLORS.bg,
   },
   backButton: {
@@ -757,39 +867,37 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   backButtonText: {
-    color: COLORS.textPrimary,
+    color: COLORS.textSecondary,
     fontSize: 14,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '600',
   },
   nextButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.accent,
     paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: RADIUS.sm,
+    paddingHorizontal: 26,
+    borderRadius: RADIUS.pill,
     gap: 8,
+    ...SHADOWS.floating,
   },
   finishButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.accent,
     paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: RADIUS.sm,
+    paddingHorizontal: 26,
+    borderRadius: RADIUS.pill,
     gap: 8,
+    ...SHADOWS.floating,
   },
   nextButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+    color: COLORS.textDark,
+    fontSize: 15,
     fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   disabledBtn: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   pillContainer: {
     flexDirection: 'row',
@@ -798,30 +906,27 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   pillButton: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.cardBgIvory,
     borderRadius: RADIUS.pill,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
     paddingVertical: 12,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
     minWidth: 100,
+    ...SHADOWS.sm,
   },
   pillButtonActive: {
     backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
   },
   pillText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
   },
   pillTextActive: {
-    color: '#FFFFFF',
+    color: COLORS.textDark,
+    fontWeight: '900',
   },
   locationContainer: {
     marginTop: 20,
@@ -830,58 +935,59 @@ const styles = StyleSheet.create({
   },
   locationCard: {
     width: '100%',
-    backgroundColor: COLORS.cardBg,
-    borderRadius: RADIUS.md,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
     padding: 30,
     alignItems: 'center',
     gap: 16,
+    ...SHADOWS.md,
   },
   locationIconBg: {
-    width: 64,
-    height: 64,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.cardBgHover,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
   },
   locationPromptText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
+    fontSize: 14,
+    color: COLORS.textDarkSecondary,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 20,
     marginVertical: 8,
   },
   locationBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.pill,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 30,
     width: '100%',
     alignItems: 'center',
+    ...SHADOWS.floating,
   },
   locationBtnDisabled: {
     opacity: 0.5,
   },
   locationBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+    color: COLORS.textDark,
+    fontSize: 14,
     fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   locationSuccessTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
-    color: COLORS.textPrimary,
+    color: COLORS.textDark,
     marginTop: 8,
   },
   locationSuccessCoords: {
     fontSize: 13,
-    color: COLORS.textMuted,
+    color: COLORS.textDarkSecondary,
     fontWeight: '600',
+  },
+  locationSuccessSubtitle: {
+    fontSize: 13,
+    color: COLORS.textDarkSecondary,
+    textAlign: 'center',
   },
 });

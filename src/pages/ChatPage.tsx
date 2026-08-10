@@ -15,12 +15,13 @@ import {
   Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play } from 'lucide-react-native';
+import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { COLORS, RADIUS } from '../shared/theme';
+import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { CONFIG } from '../shared/config';
-import { DBProfile, MatchRecord, MessageRecord, ShareHistoryItem } from '../shared/types';
+import { DBProfile, MatchRecord, MessageRecord, ShareHistoryItem, getMatchArchetype } from '../shared/types';
+import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
 import {
   DEMO_PROFILES,
   DEFAULT_DEMO_MESSAGES,
@@ -394,12 +395,13 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
       >
         {/* Chat Header */}
         <View style={styles.chatHeader}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <ArrowLeft size={22} color={COLORS.textPrimary} />
+          <TouchableOpacity style={styles.circularBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
+            <ArrowLeft size={20} color={COLORS.textDark} strokeWidth={2.2} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.chatUserBtn}
+            activeOpacity={0.7}
             onPress={() => {
               if (partnerProfile) {
                 navigation.navigate('ProfileDetails', {
@@ -410,31 +412,31 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               }
             }}
           >
-            {partnerProfile?.photos[0] ? (
-              <Image source={{ uri: partnerProfile.photos[0] }} style={styles.chatHeaderAvatar} />
-            ) : (
-              <View style={styles.fallbackHeaderAvatar}>
-                <User size={16} color={COLORS.textMuted} />
-              </View>
-            )}
+            <View style={styles.headerAvatarWrapper}>
+              {partnerProfile?.photos[0] ? (
+                <Image source={{ uri: partnerProfile.photos[0] }} style={styles.chatHeaderAvatar} />
+              ) : (
+                <View style={styles.fallbackHeaderAvatar}>
+                  <User size={18} color={COLORS.textDarkSecondary} />
+                </View>
+              )}
+              <View style={styles.onlineDot} />
+            </View>
             <View>
               <Text style={styles.chatHeaderName}>{partnerProfile?.full_name}</Text>
-              <Text style={styles.chatHeaderStatus}>View Profile</Text>
+              <Text style={styles.chatHeaderStatus}>Online</Text>
             </View>
           </TouchableOpacity>
 
           <View style={styles.chatHeaderActions}>
-            {/* Match Score Badge */}
-            {similarityScore > 0 && (
-              <View style={styles.headerScoreBadge}>
-                <Text style={styles.headerScoreText}>
-                  {(similarityScore * 100).toFixed(0)}% Match
-                </Text>
-              </View>
-            )}
+            {/* Dynamic Lucide Archetype Match Score Badge */}
+            {(() => {
+              const archetype = getMatchArchetype(similarityScore || 0.85);
+              return <ArchetypePillBadge archetype={archetype} size="md" />;
+            })()}
 
-            <TouchableOpacity style={styles.unmatchIconBtn} onPress={handleUnmatch}>
-              <Trash2 size={18} color={COLORS.danger} />
+            <TouchableOpacity style={styles.unmatchIconBtn} onPress={handleUnmatch} activeOpacity={0.7}>
+              <Trash2 size={18} color={COLORS.danger} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         </View>
@@ -444,11 +446,34 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
           ref={chatScrollViewRef}
           style={styles.chatMessagesScroll}
           contentContainerStyle={styles.chatMessagesContent}
+          showsVerticalScrollIndicator={false}
         >
+          {/* Top Lucide Archetype Match Intro Banner */}
+          {(() => {
+            const archetype = getMatchArchetype(similarityScore || 0.85);
+            return (
+              <View style={[styles.archetypeIntroBanner, { backgroundColor: archetype.bgColor }]}>
+                <View style={styles.archetypeIntroTitleRow}>
+                  <ArchetypeIcon type={archetype.type} size={14} color={archetype.textColor} />
+                  <Text style={[styles.archetypeIntroTitle, { color: archetype.textColor }]}>
+                    {archetype.label} Match
+                  </Text>
+                </View>
+                <Text style={[styles.archetypeIntroDesc, { color: archetype.textColor }]}>
+                  {archetype.type === 'twin_flame' &&
+                    `You and ${partnerProfile?.full_name?.split(' ')[0] || 'your match'} shared high-vibe similar reels yesterday!`}
+                  {archetype.type === 'chemistry' &&
+                    `Great chemistry and shared aesthetic energy with ${partnerProfile?.full_name?.split(' ')[0] || 'your match'}.`}
+                  {archetype.type === 'opposites_attract' &&
+                    'Opposites attract! Your video tastes are totally different worlds — break the ice!'}
+                </Text>
+              </View>
+            );
+          })()}
           {messages.map((msg) => {
             const isMine = msg.sender_id === currentUserId;
             const parsed = parseReferredMessage(msg.content);
-            const typeLabel = parsed.url?.includes('/reel/') ? 'REEL' : 'POST';
+            const typeLabel = parsed.url?.includes('/reel/') ? 'Reel' : 'Post';
             return (
               <View
                 key={msg.id}
@@ -476,11 +501,14 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
                     >
                       <View style={styles.msgQuoteContentRow}>
                         <View style={styles.msgQuoteTextWrapper}>
-                          <Text style={styles.msgQuoteType} numberOfLines={1}>
-                            🎬 SHARED {typeLabel}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Film size={12} color={COLORS.accent} />
+                            <Text style={styles.msgQuoteType} numberOfLines={1}>
+                              Shared {typeLabel}
+                            </Text>
+                          </View>
                         </View>
-                        <InstagramThumbnail url={parsed.url} size={32} />
+                        <InstagramThumbnail url={parsed.url} size={32} borderRadius={8} />
                       </View>
                     </TouchableOpacity>
                   )}
@@ -502,15 +530,15 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
             >
               <View style={styles.likedContentTitleRow}>
-                <Text style={styles.likedContentEmoji}>🎬</Text>
+                <Film size={15} color={COLORS.accent} />
                 <Text style={styles.likedContentTitle}>
                   {partnerProfile?.full_name}'s Shared Reels ({partnerHistory.length})
                 </Text>
               </View>
               {isHistoryCollapsed ? (
-                <ChevronDown size={14} color={COLORS.textSecondary} />
+                <ChevronDown size={14} color={COLORS.textDarkSecondary} />
               ) : (
-                <ChevronUp size={14} color={COLORS.textSecondary} />
+                <ChevronUp size={14} color={COLORS.textDarkSecondary} />
               )}
             </TouchableOpacity>
 
@@ -539,12 +567,14 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
                         thumbnailUrl={item.thumbnail_url}
                         width={70}
                         height={105}
-                        borderRadius={10}
+                        borderRadius={12}
                       />
                       <View style={styles.simpleThumbBadge}>
-                        <Text style={styles.simpleThumbBadgeText}>
-                          {item.type === 'reel' ? '🎬' : '📸'}
-                        </Text>
+                        {item.type === 'reel' ? (
+                          <Film size={10} color="#FFFFFF" />
+                        ) : (
+                          <Camera size={10} color="#FFFFFF" />
+                        )}
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -561,6 +591,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               url={referredReel.url}
               thumbnailUrl={referredReel.thumbnail_url}
               size={28}
+              borderRadius={6}
             />
             <View style={styles.referredReelBannerLeft}>
               <Text style={styles.referredReelBannerTitle} numberOfLines={1}>
@@ -571,7 +602,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               style={styles.referredReelBannerClose}
               onPress={() => setReferredReel(null)}
             >
-              <X size={14} color={COLORS.textMuted} />
+              <X size={14} color={COLORS.textDarkSecondary} />
             </TouchableOpacity>
           </View>
         )}
@@ -580,8 +611,8 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
         <View style={styles.chatInputBar}>
           <TextInput
             style={styles.chatInput}
-            placeholder="Type your message..."
-            placeholderTextColor={COLORS.textMuted}
+            placeholder="Type a message..."
+            placeholderTextColor={COLORS.textDarkSecondary}
             value={typedMessage}
             onChangeText={setTypedMessage}
             multiline
@@ -590,8 +621,9 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
             style={[styles.sendBtn, !typedMessage.trim() && styles.sendBtnDisabled]}
             onPress={handleSendMessage}
             disabled={!typedMessage.trim()}
+            activeOpacity={0.8}
           >
-            <Send size={18} color="#FFFFFF" />
+            <Send size={18} color={COLORS.textDark} strokeWidth={2.5} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -608,7 +640,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: COLORS.textMuted,
+    color: COLORS.textPrimary,
     marginTop: 12,
     fontWeight: '600',
   },
@@ -616,42 +648,59 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bg,
   },
-  backBtn: {
-    padding: 8,
-    marginRight: 4,
+  circularBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.cardBgIvory,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    ...SHADOWS.sm,
   },
   chatHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    borderBottomWidth: 1.5,
-    borderBottomColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: COLORS.bg,
   },
   chatUserBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  chatHeaderAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: RADIUS.sm,
+  headerAvatarWrapper: {
+    position: 'relative',
     marginRight: 10,
+  },
+  chatHeaderAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
   },
   fallbackHeaderAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.cardBgHover,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.cardBgIvory,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: COLORS.accent,
+    borderWidth: 2,
+    borderColor: COLORS.bg,
   },
   chatHeaderName: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
   chatHeaderStatus: {
@@ -662,32 +711,64 @@ const styles = StyleSheet.create({
   chatHeaderActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   headerScoreBadge: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.pill,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
   },
   headerScoreText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.textDark,
   },
   unmatchIconBtn: {
-    padding: 6,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.cardBgIvory,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.sm,
   },
   chatMessagesScroll: {
     flex: 1,
-    padding: 16,
+    paddingHorizontal: 16,
   },
   chatMessagesContent: {
+    paddingTop: 12,
     paddingBottom: 24,
+  },
+  archetypeIntroBanner: {
+    borderRadius: RADIUS.md,
+    padding: 14,
+    marginBottom: 18,
+    alignItems: 'center',
+    ...SHADOWS.sm,
+  },
+  archetypeIntroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  archetypeIntroTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  archetypeIntroDesc: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
   },
   msgBubbleRow: {
     marginBottom: 12,
-    maxWidth: '80%',
+    maxWidth: '78%',
   },
   msgBubbleRowMine: {
     alignSelf: 'flex-end',
@@ -699,77 +780,80 @@ const styles = StyleSheet.create({
   },
   msgBubble: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: RADIUS.md,
   },
   msgBubbleMine: {
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 2,
+    backgroundColor: COLORS.accent,
+    borderBottomRightRadius: 4,
+    ...SHADOWS.sm,
   },
   msgBubblePartner: {
-    backgroundColor: COLORS.cardBgHover,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    borderBottomLeftRadius: 2,
+    backgroundColor: COLORS.cardBgIvory,
+    borderBottomLeftRadius: 4,
+    ...SHADOWS.sm,
   },
   msgText: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   msgTextMine: {
-    color: '#FFFFFF',
+    color: COLORS.textDark,
+    fontWeight: '500',
   },
   msgTextPartner: {
-    color: COLORS.textPrimary,
+    color: COLORS.textDark,
   },
   msgTime: {
-    fontSize: 9,
-    color: COLORS.textMuted,
+    fontSize: 10,
+    color: COLORS.textSecondary,
     marginTop: 4,
+    marginHorizontal: 4,
   },
   chatInputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: COLORS.bg,
+    gap: 10,
   },
   chatInput: {
     flex: 1,
-    backgroundColor: COLORS.bg,
+    backgroundColor: COLORS.cardBgIvory,
     borderRadius: RADIUS.pill,
-    borderWidth: 1.5,
-    borderColor: COLORS.cardBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    color: COLORS.textPrimary,
-    fontSize: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    color: COLORS.textDark,
+    fontSize: 15,
     maxHeight: 100,
+    ...SHADOWS.sm,
   },
   sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.pill,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
+    ...SHADOWS.floating,
   },
   sendBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   likedContentPanel: {
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.lg,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    ...SHADOWS.sm,
   },
   likedContentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   likedContentTitleRow: {
     flexDirection: 'row',
@@ -780,87 +864,73 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   likedContentTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDark,
   },
   likedCardsScroll: {
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-    gap: 12,
+    paddingBottom: 14,
+    gap: 10,
   },
   simpleThumbWrapper: {
     position: 'relative',
     marginRight: 4,
-    borderRadius: 10,
+    borderRadius: RADIUS.sm,
     backgroundColor: COLORS.cardBg,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
+    ...SHADOWS.sm,
   },
   simpleThumbBadge: {
     position: 'absolute',
     top: 6,
     right: 6,
-    backgroundColor: 'rgba(30, 31, 35, 0.75)',
+    backgroundColor: 'rgba(35, 29, 56, 0.75)',
     borderRadius: 6,
     paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingVertical: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   simpleThumbBadgeText: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: COLORS.textPrimary,
   },
   referredReelBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: COLORS.cardBgHover,
-    borderTopWidth: 1.5,
-    borderTopColor: COLORS.cardBorder,
-    paddingHorizontal: 16,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.md,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    gap: 12,
+    ...SHADOWS.sm,
   },
   referredReelBannerLeft: {
     flex: 1,
-    marginRight: 12,
+    marginHorizontal: 8,
   },
   referredReelBannerTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.accent,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDark,
   },
   referredReelBannerClose: {
     padding: 4,
   },
   msgQuoteBlock: {
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: 'rgba(35, 29, 56, 0.08)',
     borderRadius: RADIUS.sm,
     padding: 8,
     marginBottom: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.accent,
   },
   msgQuoteType: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: COLORS.accent,
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.textDark,
     marginBottom: 2,
-    letterSpacing: 0.5,
   },
   msgQuoteContentRow: {
     flexDirection: 'row',
@@ -874,8 +944,6 @@ const styles = StyleSheet.create({
   thumbContainer: {
     borderRadius: RADIUS.sm,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
     backgroundColor: COLORS.cardBgHover,
   },
   thumbFallback: {

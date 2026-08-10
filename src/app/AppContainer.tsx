@@ -17,7 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Geolocation from 'react-native-geolocation-service';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { COLORS, RADIUS } from '../shared/theme';
@@ -33,6 +33,7 @@ import ProfileDetailsPage from '../pages/ProfileDetailsPage';
 import ChatPage from '../pages/ChatPage';
 
 const Stack = createNativeStackNavigator();
+export const navigationRef = createNavigationContainerRef<any>();
 
 export default function AppContainer() {
   const [session, setSession] = useState<any>(null);
@@ -127,23 +128,72 @@ export default function AppContainer() {
 
     requestPermissionAndToken();
 
-    // Listen to incoming messages in the foreground safely
-    let unsubscribe = () => {};
+    // Listen to notifications in foreground and tap events (background + cold-start)
+    let unsubscribeForeground = () => {};
+    let unsubscribeOpened = () => {};
+
     try {
-      const { getMessaging, onMessage } = require('@react-native-firebase/messaging');
+      const {
+        getMessaging,
+        onMessage,
+        onNotificationOpenedApp,
+        getInitialNotification,
+      } = require('@react-native-firebase/messaging');
       const messagingInstance = getMessaging();
-      unsubscribe = onMessage(messagingInstance, async (remoteMessage: any) => {
+
+      // 1. Foreground Notification Banner/Alert
+      unsubscribeForeground = onMessage(messagingInstance, async (remoteMessage: any) => {
+        const matchId = remoteMessage?.data?.matchId;
         Alert.alert(
-          remoteMessage.notification?.title || 'Notification Received',
-          remoteMessage.notification?.body || 'You have a new message.'
+          remoteMessage.notification?.title || 'New Message',
+          remoteMessage.notification?.body || 'You have received a new message.',
+          matchId
+            ? [
+                { text: 'Dismiss', style: 'cancel' },
+                {
+                  text: 'View Chat',
+                  onPress: () => {
+                    if (navigationRef.isReady()) {
+                      navigationRef.navigate('Chat', { matchId, session, isDemoMode });
+                    }
+                  },
+                },
+              ]
+            : [{ text: 'OK' }]
         );
       });
+
+      // 2. Background State -> User taps notification banner
+      unsubscribeOpened = onNotificationOpenedApp(messagingInstance, (remoteMessage: any) => {
+        console.log('📲 [DEEPLINK] Notification clicked from background:', remoteMessage?.data);
+        const matchId = remoteMessage?.data?.matchId;
+        if (matchId && navigationRef.isReady()) {
+          navigationRef.navigate('Chat', { matchId, session, isDemoMode });
+        }
+      });
+
+      // 3. Cold Start (App Quit) -> User opened app by tapping notification
+      getInitialNotification(messagingInstance).then((remoteMessage: any) => {
+        if (remoteMessage) {
+          console.log('📲 [DEEPLINK] Notification clicked from quit state:', remoteMessage?.data);
+          const matchId = remoteMessage?.data?.matchId;
+          if (matchId) {
+            // Wait for navigation container to mount
+            setTimeout(() => {
+              if (navigationRef.isReady()) {
+                navigationRef.navigate('Chat', { matchId, session, isDemoMode });
+              }
+            }, 600);
+          }
+        }
+      });
     } catch (err) {
-      console.warn('FCM foreground listener skipped (Firebase not initialized).');
+      console.warn('FCM notification listeners skipped (Firebase not configured).');
     }
 
     return () => {
-      unsubscribe();
+      unsubscribeForeground();
+      unsubscribeOpened();
     };
   }, [session, isDemoMode]);
 
@@ -201,6 +251,7 @@ export default function AppContainer() {
                 summary: video.summary || undefined,
                 username: video.username || undefined,
                 thumbnail_url: video.thumbnail_url || undefined,
+                created_at: item.created_at,
               };
             });
 
@@ -525,7 +576,7 @@ export default function AppContainer() {
   };
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Dashboard">
           {(props) => (
@@ -536,11 +587,15 @@ export default function AppContainer() {
               >
                 {/* Screen Layout */}
                 <View style={styles.mainLayoutContent}>
-                  {/* Upper Brand Info - Minimal Text Only */}
-                  <Text style={styles.minimalBrandTitle}>vibiy</Text>
+                  {/* Upper Brand Info */}
+                  {activeTab !== 'matches' && (
+                    <View style={styles.topBrandBar}>
+                      <Text style={styles.minimalBrandTitle}>vibiy</Text>
+                    </View>
+                  )}
 
                   {/* Content Body */}
-                  <View style={styles.screenBody}>
+                  <View style={[styles.screenBody, activeTab === 'matches' && styles.screenBodyMatches]}>
                     {renderContent(props.navigation)}
                   </View>
 
@@ -573,26 +628,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingLogo: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 3,
+    fontSize: 42,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
   },
   mainLayoutContent: {
     flex: 1,
   },
+  topBrandBar: {
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'ios' ? 56 : 24,
+    paddingBottom: 8,
+  },
   minimalBrandTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginTop: Platform.OS === 'ios' ? 60 : 30,
-    marginBottom: 8,
+    fontSize: 28,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: -0.5,
   },
   screenBody: {
     flex: 1,
-    paddingBottom: 95, // Offset to prevent floating tab bar from covering content
+  },
+  screenBodyMatches: {
+    paddingTop: Platform.OS === 'ios' ? 48 : 20,
   },
 });
