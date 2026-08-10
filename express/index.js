@@ -6,6 +6,7 @@ const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const admin = require('firebase-admin');
+const { initializeApp: initFirebaseApp, cert } = require('firebase-admin/app');
 const fs = require('fs');
 require('dotenv').config();
 
@@ -17,16 +18,16 @@ let firebaseInitialized = false;
 try {
   const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
   if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = require(serviceAccountPath);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    initFirebaseApp({
+      credential: cert(serviceAccount),
     });
     firebaseInitialized = true;
     console.log('✅ Firebase Admin SDK initialized from serviceAccountKey.json');
   } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+    initFirebaseApp({
+      credential: cert(serviceAccount),
     });
     firebaseInitialized = true;
     console.log('✅ Firebase Admin SDK initialized from FIREBASE_SERVICE_ACCOUNT env');
