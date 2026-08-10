@@ -1,0 +1,2 @@
+curl_cffi>=0.6.0
+parsel>=1.9.0

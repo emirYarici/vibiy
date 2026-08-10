@@ -21,13 +21,27 @@ HEADERS = {
     "upgrade-insecure-requests": "1"
 }
 
+import random
+
+def get_proxy_config():
+    raw = os.getenv("PROXY_URL") or os.getenv("PROXY_LIST") or os.getenv("ROTATING_PROXY_URL") or os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+    if not raw:
+        return None
+    proxies_list = [p.strip() for p in raw.split(",") if p.strip()]
+    if not proxies_list:
+        return None
+    chosen = random.choice(proxies_list)
+    return {"http": chosen, "https": chosen}
+
 def scrape_instagram_reel(url):
     """
     Fetches the Instagram page and extracts video, thumbnail, and summary metadata
     using the exact JSON extraction path provided by the user.
     """
+    proxies = get_proxy_config()
+
     # Make request using curl_cffi (impersonate chrome)
-    response = requests.get(url, headers=HEADERS, impersonate="chrome")
+    response = requests.get(url, headers=HEADERS, proxies=proxies, impersonate="chrome")
     if response.status_code != 200:
         raise Exception(f"Instagram returned HTTP {response.status_code}")
 
