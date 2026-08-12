@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
-  Image,
-  SafeAreaView,
   Platform,
 } from 'react-native';
-import { ArrowLeft, MapPin, Sparkles, MessageCircle, Heart } from 'lucide-react-native';
+import { ArrowLeft, MessageCircle, Sparkles } from 'lucide-react-native';
 
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { getMatchArchetype } from '../shared/types';
 import { ArchetypeIcon } from '../components/ArchetypeBadge';
+import SkeletonImage from '../components/SkeletonImage';
+import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 
 interface ProfileDetailsPageProps {
   route?: any;
@@ -21,10 +21,42 @@ interface ProfileDetailsPageProps {
 }
 
 export default function ProfileDetailsPage({ route, navigation }: ProfileDetailsPageProps) {
-  const { profile, activeChatMatchId, onChatNow, score } = route?.params || {};
+  const { profile, activeChatMatchId, onChatNow, score, session, isDemoMode } = route?.params || {};
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [matchScore, setMatchScore] = useState<number | null>(
+    typeof score === 'number' ? score : null
+  );
 
-  const archetype = getMatchArchetype(score ?? 0.88);
+  const currentUserId = session?.user?.id || 'demo-guest-user';
+
+  useEffect(() => {
+    if (typeof score === 'number') {
+      setMatchScore(score);
+      return;
+    }
+
+    // Fetch match similarity score between currentUserId and profile.id if missing
+    if (profile?.id && currentUserId && !isDemoMode && isSupabaseConfigured) {
+      const fetchScore = async () => {
+        try {
+          const { data } = await supabase
+            .from('matches')
+            .select('similarity_score')
+            .or(`and(user_a.eq.${currentUserId},user_b.eq.${profile.id}),and(user_a.eq.${profile.id},user_b.eq.${currentUserId})`)
+            .maybeSingle();
+
+          if (data?.similarity_score !== undefined && data?.similarity_score !== null) {
+            setMatchScore(data.similarity_score);
+          }
+        } catch (err) {
+          console.error('Error fetching profile match score:', err);
+        }
+      };
+      fetchScore();
+    }
+  }, [score, profile?.id, currentUserId, isDemoMode]);
+
+  const archetype = matchScore !== null ? getMatchArchetype(matchScore) : null;
 
   const handleBack = () => {
     navigation.goBack();
@@ -36,26 +68,21 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
     }
   };
 
-  const name = profile?.full_name || 'Pete';
+  const name = profile?.full_name || 'Anonymous';
   const handle = `@${name.toLowerCase().replace(/\s+/g, '')}`;
-  const bioText = profile?.bio || 'Marketing director, amateur photographer, traveller, family guy';
-
-  // Dynamic tags/worlds/vibes based on profile or fallback
-  const worldsList = ['Design', 'Entrepreneurship', 'Startups'];
-  const vibesList = ['Ambitious', 'Adventurous', 'Skeptical'];
-  const occupation = profile?.occupation || "I'm self-employed";
+  const bioText = profile?.bio || '';
 
   const photosList = profile?.photos && profile.photos.length > 0
     ? profile.photos
     : ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <View style={styles.container}>
         {/* Top Header Bar */}
         <View style={styles.topHeader}>
           <TouchableOpacity style={styles.circularBackBtn} onPress={handleBack} activeOpacity={0.8}>
-            <ArrowLeft size={20} color={COLORS.textPrimary} strokeWidth={2.2} />
+            <ArrowLeft size={22} color="#1C0B05" strokeWidth={2.5} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{name.split(' ')[0]}'s Profile</Text>
           <View style={{ width: 44 }} />
@@ -67,7 +94,7 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
         >
           {/* Top Hero Photo Container */}
           <View style={styles.photoWrapper}>
-            <Image
+            <SkeletonImage
               source={{ uri: photosList[activePhotoIndex] || photosList[0] }}
               style={styles.heroPhoto}
             />
@@ -109,13 +136,15 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
               </View>
             )}
 
-            {/* Archetype Floating Pill Badge */}
-            <View style={[styles.archetypeBadge, { backgroundColor: archetype.bgColor }]}>
-              <ArchetypeIcon type={archetype.type} size={13} color={archetype.textColor} />
-              <Text style={[styles.archetypeBadgeText, { color: archetype.textColor }]}>
-                {archetype.badgeText}
-              </Text>
-            </View>
+            {/* Archetype Floating Pill Badge (Only if real match score exists) */}
+            {archetype && (
+              <View style={[styles.archetypeBadge, { backgroundColor: archetype.bgColor }]}>
+                <ArchetypeIcon type={archetype.type} size={13} color={archetype.textColor} />
+                <Text style={[styles.archetypeBadgeText, { color: archetype.textColor }]}>
+                  {archetype.badgeText}
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Editorial Details Card */}
@@ -123,61 +152,36 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
             {/* Name & Handle Row */}
             <View style={styles.nameRow}>
               <Text style={styles.nameText}>
-                {name} <Text style={styles.ageText}>{profile?.age || 26}</Text>
+                {name} {profile?.age ? <Text style={styles.ageText}>{profile.age}</Text> : null}
               </Text>
               <Text style={styles.handleText}>{handle}</Text>
             </View>
 
-            {/* INTRO Section */}
-            <View style={styles.sectionBlock}>
-              <Text style={styles.sectionLabel}>INTRO</Text>
-              <Text style={styles.introSerifText}>{bioText}</Text>
-            </View>
-
-            {/* OCCUPATION Section */}
-            <View style={styles.sectionBlock}>
-              <Text style={styles.sectionLabel}>OCCUPATION</Text>
-              <View style={styles.occupationPill}>
-                <Text style={styles.occupationPillText}>{occupation}</Text>
+            {/* INTRO Section (Real bio) */}
+            {bioText.trim() !== '' && (
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionLabel}>INTRO</Text>
+                <Text style={styles.introSerifText}>{bioText}</Text>
               </View>
-            </View>
-
-            {/* WORLDS & VIBES 2-Column Grid */}
-            <View style={styles.gridColumnsRow}>
-              <View style={styles.gridColumn}>
-                <Text style={styles.sectionLabel}>WORLDS</Text>
-                {worldsList.map((item, idx) => (
-                  <Text key={idx} style={styles.columnItemText}>
-                    {item}
-                  </Text>
-                ))}
-              </View>
-
-              <View style={styles.gridColumn}>
-                <Text style={styles.sectionLabel}>VIBES</Text>
-                {vibesList.map((item, idx) => (
-                  <Text key={idx} style={styles.columnItemText}>
-                    {item}
-                  </Text>
-                ))}
-              </View>
-            </View>
+            )}
 
             {/* Archetype Match Insights */}
-            <View style={styles.insightBox}>
-              <View style={styles.insightTitleRow}>
-                <ArchetypeIcon type={archetype.type} size={14} color={COLORS.accent} />
-                <Text style={styles.insightTitle}>{archetype.label} Match</Text>
+            {archetype && (
+              <View style={styles.insightBox}>
+                <View style={styles.insightTitleRow}>
+                  <ArchetypeIcon type={archetype.type} size={14} color={COLORS.accent} />
+                  <Text style={styles.insightTitle}>{archetype.label} Match</Text>
+                </View>
+                <Text style={styles.insightText}>
+                  {archetype.type === 'twin_flame' &&
+                    "You shared almost identical humor & aesthetic energy in yesterday's reels!"}
+                  {archetype.type === 'chemistry' &&
+                    'Great harmony and shared taste with plenty of exciting new discoveries.'}
+                  {archetype.type === 'opposites_attract' &&
+                    'Your video tastes are totally different worlds — sparks ready to fly!'}
+                </Text>
               </View>
-              <Text style={styles.insightText}>
-                {archetype.type === 'twin_flame' &&
-                  "You shared almost identical humor & aesthetic energy in yesterday's reels!"}
-                {archetype.type === 'chemistry' &&
-                  'Great harmony and shared taste with plenty of exciting new discoveries.'}
-                {archetype.type === 'opposites_attract' &&
-                  'Your video tastes are totally different worlds — sparks ready to fly!'}
-              </Text>
-            </View>
+            )}
           </View>
 
           {/* Action Chat Button */}
@@ -193,7 +197,7 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
           )}
         </ScrollView>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -201,6 +205,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.bg,
+    paddingTop: Platform.OS === 'ios' ? 48 : 16,
   },
   container: {
     flex: 1,
@@ -224,20 +229,21 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
+  /* Hero Photo */
   photoWrapper: {
     width: '100%',
     height: 420,
-    borderRadius: 24,
+    borderRadius: 28,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.cardBgIvory,
     ...SHADOWS.md,
   },
   heroPhoto: {
@@ -252,7 +258,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     flexDirection: 'row',
-    zIndex: 2,
   },
   clickZoneLeft: {
     flex: 1,
@@ -263,11 +268,10 @@ const styles = StyleSheet.create({
   indicators: {
     position: 'absolute',
     top: 14,
-    left: 16,
-    right: 16,
+    left: 14,
+    right: 14,
     flexDirection: 'row',
     gap: 6,
-    zIndex: 5,
   },
   indicatorPip: {
     flex: 1,
@@ -286,134 +290,120 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: RADIUS.pill,
-    zIndex: 5,
     ...SHADOWS.sm,
   },
   archetypeBadgeText: {
     fontSize: 12,
     fontWeight: '800',
   },
+  /* Editorial Card */
   editorialCard: {
     backgroundColor: COLORS.cardBgIvory,
     borderRadius: 24,
-    padding: 24,
-    marginTop: 16,
+    padding: 20,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: COLORS.cardBorder,
     ...SHADOWS.sm,
   },
   nameRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    alignItems: 'baseline',
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
+    paddingBottom: 12,
   },
   nameText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '800',
     color: COLORS.textDark,
     letterSpacing: -0.5,
   },
   ageText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '400',
     color: COLORS.textDarkSecondary,
   },
   handleText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
     color: COLORS.textDarkSecondary,
+    fontWeight: '600',
   },
   sectionBlock: {
-    marginBottom: 22,
+    marginBottom: 16,
   },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
     color: COLORS.textDarkSecondary,
-    marginBottom: 8,
+    letterSpacing: 1,
+    marginBottom: 6,
   },
   introSerifText: {
-    fontSize: 22,
-    lineHeight: 30,
+    fontSize: 18,
     color: COLORS.textDark,
+    lineHeight: 24,
     fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-    fontWeight: '400',
   },
-  occupationPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: RADIUS.pill,
-  },
-  occupationPillText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.textDark,
-  },
-  gridColumnsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 20,
-    marginBottom: 22,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.06)',
-  },
-  gridColumn: {
-    flex: 1,
-  },
-  columnItemText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.textDark,
-    marginBottom: 4,
-    lineHeight: 22,
-  },
+  /* Match Insights */
   insightBox: {
     backgroundColor: 'rgba(0, 0, 0, 0.04)',
-    borderRadius: RADIUS.md,
-    padding: 16,
-    marginTop: 4,
+    borderRadius: 16,
+    padding: 14,
     borderLeftWidth: 3,
     borderLeftColor: COLORS.accent,
+    marginTop: 4,
   },
   insightTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   insightTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: COLORS.textDark,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   insightText: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
     color: COLORS.textDarkSecondary,
-    fontWeight: '500',
+    lineHeight: 17,
+    marginBottom: 10,
   },
+  compareInlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.accent,
+    paddingVertical: 10,
+    borderRadius: RADIUS.pill,
+  },
+  compareInlineBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#331005',
+  },
+  /* Action Chat Button */
   chatActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.pill,
+    gap: 8,
+    backgroundColor: COLORS.cardBgIvory,
     paddingVertical: 16,
-    marginTop: 18,
-    ...SHADOWS.floating,
+    borderRadius: RADIUS.pill,
+    marginTop: 14,
+    ...SHADOWS.md,
   },
   chatActionBtnText: {
-    color: COLORS.textDark,
     fontSize: 16,
     fontWeight: '800',
+    color: COLORS.textDark,
   },
 });

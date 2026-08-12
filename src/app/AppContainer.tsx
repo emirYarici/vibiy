@@ -9,7 +9,6 @@ import {
   Platform,
   TouchableOpacity,
   Alert,
-  SafeAreaView,
   Linking,
   PermissionsAndroid,
 } from 'react-native';
@@ -19,6 +18,7 @@ import Geolocation from 'react-native-geolocation-service';
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 
 import { COLORS, RADIUS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
@@ -42,6 +42,7 @@ export default function AppContainer() {
   const [isProfileComplete, setIsProfileComplete] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'matches' | 'share'>('matches');
   const [sharedUrlFromLink, setSharedUrlFromLink] = useState<string | null>(null);
+  const shareHelpSheetRef = useRef<any>(null);
   const [shareHistory, setShareHistory] = useState<ShareHistoryItem[]>([]);
 
   // Load history from AsyncStorage on mount
@@ -365,15 +366,14 @@ export default function AppContainer() {
           const cachedPhotos = await AsyncStorage.getItem('@profile_photos');
           const cachedGender = await AsyncStorage.getItem('@profile_gender');
           const cachedPreference = await AsyncStorage.getItem('@profile_preference');
-          const cachedLat = await AsyncStorage.getItem('@profile_latitude');
           const photoArray = cachedPhotos ? JSON.parse(cachedPhotos) : [];
           
-          const complete = !!(cachedName && photoArray[0] && cachedGender && cachedPreference && cachedLat);
+          const complete = !!(cachedName && photoArray[0] && cachedGender && cachedPreference);
           setIsProfileComplete(complete);
         } else if (isSupabaseConfigured) {
           const { data, error } = await supabase
             .from('profiles')
-            .select('full_name, photos, gender, preference, location')
+            .select('full_name, photos, gender, preference')
             .eq('id', session.user.id)
             .single();
 
@@ -385,8 +385,7 @@ export default function AppContainer() {
             const hasPhoto = !!(data.photos && data.photos.length > 0 && data.photos[0]);
             const hasGender = !!data.gender;
             const hasPreference = !!data.preference;
-            const hasLocation = !!data.location;
-            setIsProfileComplete(hasName && hasPhoto && hasGender && hasPreference && hasLocation);
+            setIsProfileComplete(hasName && hasPhoto && hasGender && hasPreference);
           } else {
             setIsProfileComplete(false);
           }
@@ -395,7 +394,7 @@ export default function AppContainer() {
         }
       } catch (err) {
         console.error('Failed to check profile status:', err);
-        setIsProfileComplete(true); // Fallback to avoid blocking on check error
+        setIsProfileComplete(true);
       }
     };
 
@@ -570,46 +569,59 @@ export default function AppContainer() {
             onClearInitialUrl={() => setSharedUrlFromLink(null)}
             history={shareHistory}
             onUpdateHistory={handleUpdateHistory}
+            helpSheetRef={shareHelpSheetRef}
           />
         );
     }
   };
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Dashboard">
-          {(props) => (
-            <View style={styles.container}>
-              <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                style={styles.flexContainer}
-              >
-                {/* Screen Layout */}
-                <View style={styles.mainLayoutContent}>
-                  {/* Upper Brand Info */}
-                  {activeTab !== 'matches' && (
-                    <View style={styles.topBrandBar}>
-                      <Text style={styles.minimalBrandTitle}>vibiy</Text>
+    <BottomSheetModalProvider>
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Dashboard">
+            {(props) => (
+              <View style={styles.container}>
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                  style={styles.flexContainer}
+                >
+                  {/* Screen Layout */}
+                  <View style={styles.mainLayoutContent}>
+                    {/* Upper Brand Info */}
+                    {activeTab !== 'matches' && (
+                      <View style={styles.topBrandBar}>
+                        <Text style={styles.minimalBrandTitle}>vibiy</Text>
+                        {activeTab === 'share' && (
+                          <TouchableOpacity
+                            style={styles.brandHelpBtn}
+                            onPress={() => shareHelpSheetRef.current?.present()}
+                            activeOpacity={0.75}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Text style={styles.brandHelpText}>?</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Content Body */}
+                    <View style={[styles.screenBody, activeTab === 'matches' && styles.screenBodyMatches]}>
+                      {renderContent(props.navigation)}
                     </View>
-                  )}
 
-                  {/* Content Body */}
-                  <View style={[styles.screenBody, activeTab === 'matches' && styles.screenBodyMatches]}>
-                    {renderContent(props.navigation)}
+                    {/* Floating Bottom Tab Bar */}
+                    <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
                   </View>
-
-                  {/* Floating Bottom Tab Bar */}
-                  <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
-                </View>
-              </KeyboardAvoidingView>
-            </View>
-          )}
-        </Stack.Screen>
-        <Stack.Screen name="ProfileDetails" component={ProfileDetailsPage} />
-        <Stack.Screen name="Chat" component={ChatPage} />
-      </Stack.Navigator>
-    </NavigationContainer>
+                </KeyboardAvoidingView>
+              </View>
+            )}
+          </Stack.Screen>
+          <Stack.Screen name="ProfileDetails" component={ProfileDetailsPage} />
+          <Stack.Screen name="Chat" component={ChatPage} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </BottomSheetModalProvider>
   );
 }
 
@@ -640,12 +652,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: Platform.OS === 'ios' ? 56 : 24,
     paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   minimalBrandTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: COLORS.textPrimary,
     letterSpacing: -0.5,
+  },
+  brandHelpBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  brandHelpText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#1C0B05',
   },
   screenBody: {
     flex: 1,

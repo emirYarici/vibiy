@@ -182,3 +182,50 @@ export function useProcessVideoMutation(session?: any) {
     },
   });
 }
+
+export function useDeleteShareHistoryMutation(session?: any) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (item: ShareHistoryItem) => {
+      const userId = session?.user?.id;
+      if (userId && isSupabaseConfigured) {
+        // Delete from userid_videos table by video_id or link id
+        const { error } = await supabase
+          .from('userid_videos')
+          .delete()
+          .eq('user_id', userId)
+          .eq('video_id', item.id);
+
+        if (error) {
+          console.warn('Could not delete from userid_videos by video_id, trying id:', error);
+          await supabase
+            .from('userid_videos')
+            .delete()
+            .eq('user_id', userId)
+            .eq('id', item.id);
+        }
+      }
+
+      // Also update local AsyncStorage cache
+      try {
+        const cached = await AsyncStorage.getItem('@share_history');
+        if (cached) {
+          const parsed: ShareHistoryItem[] = JSON.parse(cached);
+          const filtered = parsed.filter((h) => h.id !== item.id && h.url !== item.url);
+          await AsyncStorage.setItem('@share_history', JSON.stringify(filtered));
+        }
+      } catch (e) {
+        console.warn('Failed to update local cache on delete:', e);
+      }
+
+      return item;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: SHARE_QUERY_KEYS.user(session?.user?.id),
+      });
+    },
+  });
+}
+

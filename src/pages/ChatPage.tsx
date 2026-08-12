@@ -11,17 +11,19 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera } from 'lucide-react-native';
+import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera, Sparkles } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { CONFIG } from '../shared/config';
 import { DBProfile, MatchRecord, MessageRecord, ShareHistoryItem, getMatchArchetype } from '../shared/types';
 import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
+import SkeletonImage from '../components/SkeletonImage';
+import CompareVibesSheet from '../components/CompareVibesSheet';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import {
   DEMO_PROFILES,
   DEFAULT_DEMO_MESSAGES,
@@ -64,31 +66,31 @@ const InstagramThumbnail = ({
 
   return (
     <View style={[styles.thumbContainer, { width: w, height: h, borderRadius }]}>
-      <View style={StyleSheet.absoluteFill}>
-        <View style={styles.thumbFallback}>
-          <Play size={Math.min(w, h) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
-        </View>
-      </View>
-      {thumbnailUrl && (
-        <Image
+      {thumbnailUrl ? (
+        <SkeletonImage
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           onError={() => setHasError(true)}
         />
+      ) : (
+        <View style={styles.thumbFallback}>
+          <Play size={Math.min(w, h) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
+        </View>
       )}
     </View>
   );
 };
 
 export default function ChatPage({ route, navigation }: ChatPageProps) {
-  const { matchId, session, isDemoMode } = route.params || {};
+  const { matchId, session, isDemoMode, initialMessage } = route.params || {};
 
   const [loading, setLoading] = useState(true);
   const [match, setMatch] = useState<MatchRecord | null>(null);
   const [partnerProfile, setPartnerProfile] = useState<DBProfile | null>(null);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
-  const [typedMessage, setTypedMessage] = useState('');
+  const [typedMessage, setTypedMessage] = useState(initialMessage || '');
+  const [showCompareSheet, setShowCompareSheet] = useState(false);
 
   // Liked/Shared Reels History
   const [partnerHistory, setPartnerHistory] = useState<ShareHistoryItem[]>([]);
@@ -97,6 +99,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
 
   const chatScrollViewRef = useRef<ScrollView>(null);
   const currentUserId = session?.user?.id || 'demo-guest-user';
+
 
   // Load chat profile details, message stream, and partner shared reels
   const fetchChatDetails = useCallback(async () => {
@@ -387,7 +390,8 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
   const similarityScore = match?.similarity_score || 0;
 
   return (
-    <SafeAreaView style={styles.chatContainer}>
+    <BottomSheetModalProvider>
+      <View style={styles.chatContainer}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
@@ -396,7 +400,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
         {/* Chat Header */}
         <View style={styles.chatHeader}>
           <TouchableOpacity style={styles.circularBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
-            <ArrowLeft size={20} color={COLORS.textDark} strokeWidth={2.2} />
+            <ArrowLeft size={22} color="#1C0B05" strokeWidth={2.5} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -406,6 +410,9 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               if (partnerProfile) {
                 navigation.navigate('ProfileDetails', {
                   profile: partnerProfile,
+                  score: similarityScore,
+                  session,
+                  isDemoMode,
                   activeChatMatchId: matchId,
                   onChatNow: () => {},
                 });
@@ -414,7 +421,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
           >
             <View style={styles.headerAvatarWrapper}>
               {partnerProfile?.photos[0] ? (
-                <Image source={{ uri: partnerProfile.photos[0] }} style={styles.chatHeaderAvatar} />
+                <SkeletonImage source={{ uri: partnerProfile.photos[0] }} style={styles.chatHeaderAvatar} />
               ) : (
                 <View style={styles.fallbackHeaderAvatar}>
                   <User size={18} color={COLORS.textDarkSecondary} />
@@ -525,22 +532,32 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
         {/* Collapsible Shared Reels Content panel */}
         {partnerHistory.length > 0 && (
           <View style={styles.likedContentPanel}>
-            <TouchableOpacity
-              style={styles.likedContentHeader}
-              onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-            >
-              <View style={styles.likedContentTitleRow}>
+            <View style={styles.likedContentHeader}>
+              <TouchableOpacity
+                style={styles.likedContentTitleRow}
+                onPress={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                activeOpacity={0.7}
+              >
                 <Film size={15} color={COLORS.accent} />
                 <Text style={styles.likedContentTitle}>
                   {partnerProfile?.full_name}'s Shared Reels ({partnerHistory.length})
                 </Text>
-              </View>
-              {isHistoryCollapsed ? (
-                <ChevronDown size={14} color={COLORS.textDarkSecondary} />
-              ) : (
-                <ChevronUp size={14} color={COLORS.textDarkSecondary} />
-              )}
-            </TouchableOpacity>
+                {isHistoryCollapsed ? (
+                  <ChevronDown size={14} color={COLORS.textDarkSecondary} />
+                ) : (
+                  <ChevronUp size={14} color={COLORS.textDarkSecondary} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.sparkleBtn}
+                onPress={() => setShowCompareSheet(true)}
+                activeOpacity={0.75}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Sparkles size={16} color="#331005" fill="#FFBE54" />
+              </TouchableOpacity>
+            </View>
 
             {!isHistoryCollapsed && (
               <View>
@@ -627,8 +644,23 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+
+      {/* Compare Our Vibes Modal Sheet (Real DB Data) */}
+      <CompareVibesSheet
+        visible={showCompareSheet}
+        onClose={() => setShowCompareSheet(false)}
+        currentUserId={currentUserId}
+        partnerProfile={partnerProfile}
+        score={similarityScore || 0.85}
+        isDemoMode={isDemoMode}
+        onStartChatWithPrompt={(prompt) => {
+          setTypedMessage(prompt);
+          setShowCompareSheet(false);
+        }}
+      />
+    </View>
+  </BottomSheetModalProvider>
+);
 }
 
 const styles = StyleSheet.create({
@@ -647,15 +679,16 @@ const styles = StyleSheet.create({
   chatContainer: {
     flex: 1,
     backgroundColor: COLORS.bg,
+    paddingTop: Platform.OS === 'ios' ? 48 : 16,
   },
   circularBackBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: COLORS.cardBgIvory,
+    backgroundColor: '#FFBE54',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
     ...SHADOWS.sm,
   },
   chatHeader: {
@@ -762,9 +795,8 @@ const styles = StyleSheet.create({
   },
   archetypeIntroDesc: {
     fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
     lineHeight: 16,
+    fontWeight: '500',
   },
   msgBubbleRow: {
     marginBottom: 12,
@@ -810,11 +842,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginHorizontal: 4,
   },
+  accordionRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sparkleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.sm,
+  },
   chatInputBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
     backgroundColor: COLORS.bg,
     gap: 10,
   },

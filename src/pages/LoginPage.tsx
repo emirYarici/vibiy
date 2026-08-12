@@ -257,7 +257,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
             <BottomSheetTextInput
               style={styles.sheetInput}
               placeholder="user@example.com"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor={COLORS.textDarkSecondary}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -271,7 +271,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
             <BottomSheetTextInput
               style={styles.sheetInput}
               placeholder="••••••••"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor={COLORS.textDarkSecondary}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}

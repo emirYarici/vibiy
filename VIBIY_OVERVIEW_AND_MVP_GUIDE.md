@@ -15,9 +15,12 @@
 
 ---
 
-### 2. 🧠 Geospatial + AI Vector Matching Algorithm
+### 2. 🧠 Geospatial + 70/30 Hybrid Vector Matching Algorithm
 * **PostgreSQL + PostGIS Proximity**: Filters candidates within a defined radius (e.g. 50 km) using `ST_DWithin` on GiST-indexed GPS coordinates.
-* **Cosine Similarity via `pgvector`**: Computes multi-video cosine distance over the 3 videos shared yesterday.
+* **70/30 Hybrid Vector Compatibility via `pgvector`**:
+  * **70% Weight on Daily Mood**: Cosine distance across the **3 videos shared yesterday / recently**.
+  * **30% Weight on Core Persona**: Cosine distance across the user's **rolling last 20 videos**.
+  * **Cold-Start Resilient**: If a user has fewer than 20 videos, the algorithm gracefully weights available history without data skew.
 * **Mutual Preference Enforcement**: Strict matching of gender and sexual preference filters.
 * **Many-to-Many Daily Limit**: Evaluates candidates and caps matches to **Top 3 connections per user per day**.
 * **50% Threshold Optimization**: Configured to capture strong connections while maintaining discovery opportunities.

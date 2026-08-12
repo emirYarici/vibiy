@@ -80,9 +80,12 @@ yarn-error.log
 .env.*
 express/.env
 
+# Firebase service account (sensitive!)
+serviceAccountKey.json
+express/serviceAccountKey.json
+
 # Python virtual environment
 venv/
 express/venv/
 __pycache__/
 *.pyc
-

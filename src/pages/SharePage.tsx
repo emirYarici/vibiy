@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,15 +10,24 @@ import {
   Linking,
   Clipboard,
   Animated,
+  Easing,
   TouchableWithoutFeedback,
   NativeModules,
   Image,
+  Modal,
 } from 'react-native';
-import { Film, Camera, Play, Sparkles, Check, Flame } from 'lucide-react-native';
+import { Film, Camera, Play, Sparkles, Check, Flame, ExternalLink, XCircle, HelpCircle, Zap, X } from 'lucide-react-native';
+import {
+  BottomSheetModal,
+  BottomSheetView,
+  BottomSheetBackdrop,
+  BottomSheetModalProvider,
+} from '@gorhom/bottom-sheet';
 
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
 import { CONFIG } from '../shared/config';
+import SkeletonImage from '../components/SkeletonImage';
 
 const getInstagramThumbnail = (url: string) => {
   if (!url) return null;
@@ -45,24 +54,334 @@ const InstagramThumbnail = ({
 
   return (
     <View style={[styles.thumbContainer, { width, height, borderRadius }]}>
-      <View style={StyleSheet.absoluteFill}>
-        <View style={styles.thumbFallback}>
-          <Play size={Math.min(width, height) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
-        </View>
-      </View>
-      {thumbnailUrl && (
-        <Image
+      {thumbnailUrl ? (
+        <SkeletonImage
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           onError={() => setHasError(true)}
         />
+      ) : (
+        <View style={styles.thumbFallback}>
+          <Play size={Math.min(width, height) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
+        </View>
       )}
     </View>
   );
 };
 
-import { useShareHistoryQuery, useProcessVideoMutation } from '../shared/queries/useShareHistory';
+import { useShareHistoryQuery, useProcessVideoMutation, useDeleteShareHistoryMutation } from '../shared/queries/useShareHistory';
+
+// ── Loader Overlay ────────────────────────────────────────────────────────────
+const LOADING_MESSAGES = [
+  'Fetching reel metadata...',
+  'Analyzing your vibe...',
+  'Running AI on content...',
+  'Computing taste vectors...',
+  'Almost there...',
+];
+
+function AnalyzingOverlay({ visible }: { visible: boolean }) {
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const rippleAnim = useRef(new Animated.Value(1)).current;
+  const rippleOpacity = useRef(new Animated.Value(0.45)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const textFadeAnim = useRef(new Animated.Value(1)).current;
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  useEffect(() => {
+    if (visible) {
+      // Fade in modal backdrop & card
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 250,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+
+      // Smooth continuous spin ring
+      const spinLoop = Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 1300,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      );
+      spinLoop.start();
+
+      // Subtle breathing pulse for the center circle
+      const pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 800,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 800,
+            easing: Easing.inOut(Easing.sin),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseLoop.start();
+
+      // Expanding concentric ripple wave
+      const rippleLoop = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(rippleAnim, {
+              toValue: 1.45,
+              duration: 1600,
+              easing: Easing.out(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(rippleAnim, {
+              toValue: 1,
+              duration: 0,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(rippleOpacity, {
+              toValue: 0,
+              duration: 1600,
+              easing: Easing.out(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(rippleOpacity, {
+              toValue: 0.4,
+              duration: 0,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+      rippleLoop.start();
+
+      // Cycle messages with crossfade
+      setMsgIndex(0);
+      textFadeAnim.setValue(1);
+      const interval = setInterval(() => {
+        Animated.timing(textFadeAnim, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }).start(() => {
+          setMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length);
+          Animated.timing(textFadeAnim, {
+            toValue: 1,
+            duration: 220,
+            useNativeDriver: true,
+          }).start();
+        });
+      }, 2200);
+
+      return () => {
+        clearInterval(interval);
+        spinLoop.stop();
+        pulseLoop.stop();
+        rippleLoop.stop();
+      };
+    } else {
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+      spinAnim.stopAnimation();
+      pulseAnim.stopAnimation();
+      rippleAnim.stopAnimation();
+    }
+  }, [visible]);
+
+  const spin = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
+      <Animated.View style={[loaderStyles.backdrop, { opacity: fadeAnim }]}>
+        <View style={loaderStyles.card}>
+          {/* Concentric Loader Center */}
+          <View style={loaderStyles.loaderContainer}>
+            {/* Outer Radiant Ripple Wave */}
+            <Animated.View
+              style={[
+                loaderStyles.ripple,
+                {
+                  transform: [{ scale: rippleAnim }],
+                  opacity: rippleOpacity,
+                },
+              ]}
+            />
+
+            {/* Orbiting Track (Background subtle ring) */}
+            <View style={loaderStyles.ringTrack} />
+
+            {/* Rotating Active Loader Ring */}
+            <Animated.View
+              style={[
+                loaderStyles.ring,
+                {
+                  transform: [{ rotate: spin }],
+                },
+              ]}
+            />
+
+            {/* Inner Pulsing Circle */}
+            <Animated.View
+              style={[
+                loaderStyles.orb,
+                {
+                  transform: [{ scale: pulseAnim }],
+                },
+              ]}
+            >
+              <Sparkles size={28} color={COLORS.textDark} />
+            </Animated.View>
+          </View>
+
+          {/* Typography */}
+          <Text style={loaderStyles.title}>Analyzing Reel</Text>
+          <Animated.View style={[loaderStyles.subtitleContainer, { opacity: textFadeAnim }]}>
+            <Text style={loaderStyles.subtitle}>{LOADING_MESSAGES[msgIndex]}</Text>
+          </Animated.View>
+
+          {/* Step Progress Dots */}
+          <View style={loaderStyles.dotsContainer}>
+            {LOADING_MESSAGES.map((_, idx) => (
+              <View
+                key={idx}
+                style={[
+                  loaderStyles.dot,
+                  idx === msgIndex && loaderStyles.dotActive,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+const loaderStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    width: 260,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+    backgroundColor: COLORS.cardBgIvory,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    elevation: 20,
+  },
+  loaderContainer: {
+    width: 104,
+    height: 104,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  ripple: {
+    position: 'absolute',
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: COLORS.accent,
+  },
+  ringTrack: {
+    position: 'absolute',
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 3.5,
+    borderColor: 'rgba(0, 0, 0, 0.07)',
+  },
+  ring: {
+    position: 'absolute',
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 3.5,
+    borderColor: 'transparent',
+    borderTopColor: COLORS.textDark,
+    borderRightColor: COLORS.accent,
+  },
+  orb: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 6,
+    letterSpacing: -0.3,
+  },
+  subtitleContainer: {
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  subtitle: {
+    fontSize: 13.5,
+    color: COLORS.textDarkSecondary,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 8,
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: 'rgba(0, 0, 0, 0.12)',
+  },
+  dotActive: {
+    width: 18,
+    backgroundColor: COLORS.textDark,
+  },
+});
+
+// ── Ordinal helper ────────────────────────────────────────────────────────────
+function getOrdinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 interface SharePageProps {
   session?: any;
@@ -70,6 +389,7 @@ interface SharePageProps {
   onClearInitialUrl?: () => void;
   history?: ShareHistoryItem[];
   onUpdateHistory?: (history: ShareHistoryItem[]) => void;
+  helpSheetRef?: React.RefObject<BottomSheetModal>;
 }
 
 export default function SharePage({
@@ -78,9 +398,15 @@ export default function SharePage({
   onClearInitialUrl,
   history: propHistory,
   onUpdateHistory,
+  helpSheetRef: externalHelpSheetRef,
 }: SharePageProps) {
   const [inputText, setInputText] = useState('');
-  const [sharedUrl, setSharedUrl] = useState<string | null>(null);
+  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const [invalidUrl, setInvalidUrl] = useState<string | null>(null);
+  const confirmSheetRef = useRef<BottomSheetModal>(null);
+  const invalidSheetRef = useRef<BottomSheetModal>(null);
+  const localHelpSheetRef = useRef<BottomSheetModal>(null);
+  const helpSheetRef = externalHelpSheetRef || localHelpSheetRef;
 
   // React Query Hook for Shared History & Daily Goal
   const {
@@ -100,68 +426,55 @@ export default function SharePage({
   const processVideoMutation = useProcessVideoMutation(session);
   const isProcessing = processVideoMutation.isPending;
 
-  // Animated values for visual effects
-  const cardScale = useRef(new Animated.Value(0.8)).current;
-  const cardOpacity = useRef(new Animated.Value(0)).current;
   const buttonScale = useRef(new Animated.Value(1)).current;
 
   // Listen to initialSharedUrl passed from root and process immediately
   useEffect(() => {
     if (initialSharedUrl) {
-      processSharedUrl(initialSharedUrl);
+      if (!initialSharedUrl.includes('instagram.com')) {
+        setInvalidUrl(initialSharedUrl);
+        invalidSheetRef.current?.present();
+      } else {
+        processSharedUrl(initialSharedUrl);
+      }
       if (onClearInitialUrl) {
         onClearInitialUrl();
       }
     }
   }, [initialSharedUrl]);
 
-  // Animate card entry when sharedUrl changes
-  useEffect(() => {
-    if (sharedUrl) {
-      Animated.parallel([
-        Animated.spring(cardScale, {
-          toValue: 1,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(cardScale, {
-          toValue: 0.8,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [sharedUrl]);
-
-  const processSharedUrl = async (url: string) => {
+  // Actual processing — called only after user confirms
+  const executeProcess = async (url: string) => {
     try {
-      const result = await processVideoMutation.mutateAsync(url);
-      setSharedUrl(url);
-
+      await processVideoMutation.mutateAsync(url);
       if (onUpdateHistory) {
         onUpdateHistory(queryHistory);
       }
-
-      Alert.alert('Success', 'Instagram video processed successfully!');
+      Alert.alert('Success', 'Instagram video added to your daily drop goal!');
     } catch (err: any) {
       console.error('Error processing shared URL:', err);
       Alert.alert('Processing Failed', err.message || 'Unable to process Instagram video.');
     }
   };
+
+  // Opens confirmation sheet first
+  const processSharedUrl = (url: string) => {
+    setPendingUrl(url);
+    confirmSheetRef.current?.present();
+  };
+
+  const handleConfirm = useCallback(() => {
+    confirmSheetRef.current?.dismiss();
+    if (pendingUrl) {
+      executeProcess(pendingUrl);
+      setPendingUrl(null);
+    }
+  }, [pendingUrl]);
+
+  const handleCancel = useCallback(() => {
+    confirmSheetRef.current?.dismiss();
+    setPendingUrl(null);
+  }, []);
 
   const handleManualSubmit = () => {
     if (!inputText.trim()) {
@@ -169,7 +482,8 @@ export default function SharePage({
       return;
     }
     if (!inputText.includes('instagram.com')) {
-      Alert.alert('Invalid URL', 'Please enter a valid Instagram URL (e.g., https://instagram.com/p/...)');
+      setInvalidUrl(inputText.trim());
+      invalidSheetRef.current?.present();
       return;
     }
     processSharedUrl(inputText.trim());
@@ -192,236 +506,630 @@ export default function SharePage({
 
   const handlePaste = async () => {
     const text = await Clipboard.getString();
+    if (!text.trim()) {
+      Alert.alert('Clipboard Empty', 'Nothing found in clipboard.');
+      return;
+    }
     if (text.includes('instagram.com')) {
       setInputText(text);
     } else {
-      Alert.alert('Clipboard Empty', 'Clipboard does not contain an Instagram link.');
+      setInvalidUrl(text.trim());
+      invalidSheetRef.current?.present();
     }
   };
 
+  const reelNumber = Math.min(sharedCount + 1, 3);
+  const reelLabel = getOrdinal(reelNumber);
+
+  const renderBackdrop = useCallback(
+    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
+    []
+  );
+
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-      {/* 🎯 "3 Videos to Unlock" Daily Progress Bar Card */}
-      <View style={[styles.progressCard, isDropUnlocked && styles.progressCardUnlocked]}>
-        <View style={styles.progressHeaderRow}>
-          <View style={[styles.progressBadge, isDropUnlocked && styles.progressBadgeUnlocked]}>
-            {isDropUnlocked ? (
-              <Flame size={14} color={COLORS.textDark} fill={COLORS.textDark} />
-            ) : (
-              <Sparkles size={14} color={COLORS.textDark} />
-            )}
-            <Text style={styles.progressBadgeText}>
-              {isDropUnlocked ? 'DROP UNLOCKED' : 'DAILY MATCH GOAL'}
-            </Text>
-          </View>
-          <View style={[styles.progressPill, isDropUnlocked && styles.progressPillUnlocked]}>
-            <Text style={[styles.progressPillText, isDropUnlocked && styles.progressPillTextUnlocked]}>
-              {Math.min(sharedCount, 3)}/3
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.progressTitle}>
-          {isDropUnlocked
-            ? "Tomorrow’s Vibe Drop Unlocked! 🔥"
-            : `Share ${3 - Math.min(sharedCount, 3)} More Video${3 - Math.min(sharedCount, 3) === 1 ? '' : 's'} Today`}
-        </Text>
-        <Text style={styles.progressSubtitle}>
-          {isDropUnlocked
-            ? "You've unlocked tomorrow's 9:00 AM daily match drop. Your latest shared videos are computing your compatibility vectors!"
-            : "Share at least 3 videos today so our AI can match you with people who share your humor & aesthetic."}
-        </Text>
-
-        {/* 3 Milestone Slots */}
-        <View style={styles.milestonesRow}>
-          {[0, 1, 2].map((idx) => {
-            const item = todayItems[idx];
-            const isCompleted = idx < sharedCount;
-            return (
-              <View
-                key={idx}
-                style={[
-                  styles.milestoneSlot,
-                  isCompleted && styles.milestoneSlotCompleted,
-                ]}
-              >
-                {item ? (
-                  <View style={styles.milestoneThumbContainer}>
-                    <InstagramThumbnail
-                      url={item.url}
-                      thumbnailUrl={item.thumbnail_url}
-                      width={86}
-                      height={108}
-                      borderRadius={12}
-                    />
-                    <View style={styles.milestoneCheckBadge}>
-                      <Check size={11} color="#FFFFFF" strokeWidth={3} />
-                    </View>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.milestoneEmptyTrigger}
-                    onPress={() => {
-                      handlePaste();
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.milestoneNumberBg}>
-                      <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
-                    </View>
-                    <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            );
-          })}
-        </View>
-
-        {/* Progress Track */}
-        <View style={styles.progressTrackBg}>
-          <View style={[styles.progressTrackFill, { width: `${progressPercent}%` }]} />
-        </View>
-      </View>
-
-      {/* Input Card */}
-      <View style={styles.glassCard}>
-        <Text style={styles.cardTitle}>Share Now!</Text>
-        <Text style={styles.cardDescription}>
-          Paste an Instagram URL or share directly from Instagram.
-        </Text>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="https://www.instagram.com/p/..."
-            placeholderTextColor={COLORS.textMuted}
-            value={inputText}
-            onChangeText={setInputText}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {inputText ? (
-            <TouchableOpacity onPress={() => setInputText('')} style={styles.clearInputButton}>
-              <Text style={styles.clearInputText}>✕</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity onPress={handlePaste} style={styles.pasteButton}>
-              <Text style={styles.pasteButtonText}>Paste</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <TouchableWithoutFeedback
-          onPress={handleManualSubmit}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-        >
-          <Animated.View style={[styles.primaryButton, { transform: [{ scale: buttonScale }] }]}>
-            <Text style={styles.primaryButtonText}>
-              {isProcessing ? 'Sharing...' : 'Share Now!'}
-            </Text>
-          </Animated.View>
-        </TouchableWithoutFeedback>
-      </View>
-
-      {/* Shared URL Detail Card */}
-      {sharedUrl && (() => {
-        const activeItem = activeHistory.find((h: ShareHistoryItem) => h.url === sharedUrl);
-        return (
-          <Animated.View
-            style={[
-              styles.sharedCard,
-              { opacity: cardOpacity, transform: [{ scale: cardScale }] },
-            ]}
-          >
-            <View style={styles.sharedHeader}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>ACTIVE SHARE</Text>
-              </View>
-              <TouchableOpacity onPress={() => setSharedUrl(null)}>
-                <Text style={styles.closeCardText}>Dismiss</Text>
-              </TouchableOpacity>
+    <>
+      <AnalyzingOverlay visible={isProcessing} />
+      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+        {/* 🎯 "3 Videos to Unlock" Daily Progress Bar Card */}
+        <View style={[styles.progressCard, isDropUnlocked && styles.progressCardUnlocked]}>
+          <View style={styles.progressHeaderRow}>
+            <View style={[styles.progressBadge, isDropUnlocked && styles.progressBadgeUnlocked]}>
+              {isDropUnlocked ? (
+                <Flame size={14} color={COLORS.textDark} fill={COLORS.textDark} />
+              ) : (
+                <Sparkles size={14} color={COLORS.textDark} />
+              )}
+              <Text style={styles.progressBadgeText}>
+                {isDropUnlocked ? 'DROP UNLOCKED' : 'DAILY MATCH GOAL'}
+              </Text>
             </View>
+            <View style={[styles.progressPill, isDropUnlocked && styles.progressPillUnlocked]}>
+              <Text style={[styles.progressPillText, isDropUnlocked && styles.progressPillTextUnlocked]}>
+                {Math.min(sharedCount, 3)}/3
+              </Text>
+            </View>
+          </View>
 
-            <View style={styles.sharedContent}>
-              <View style={styles.sharedPreviewRow}>
-                <InstagramThumbnail
-                  url={sharedUrl}
-                  thumbnailUrl={activeItem?.thumbnail_url}
-                  width={64}
-                  height={84}
-                  borderRadius={10}
-                />
-                <View style={styles.sharedPreviewInfo}>
-                  <Text style={styles.sharedUrlLabel}>Received URL</Text>
-                  <Text style={styles.sharedUrlText} numberOfLines={2}>
-                    {sharedUrl}
-                  </Text>
-                  {activeItem?.username && (
-                    <Text style={styles.sharedAuthorText} numberOfLines={1}>
-                      @{activeItem.username}
-                    </Text>
+          <Text style={styles.progressTitle}>
+            {isDropUnlocked
+              ? "Tomorrow’s Vibe Drop Unlocked! 🔥"
+              : `Share ${3 - Math.min(sharedCount, 3)} More Video${3 - Math.min(sharedCount, 3) === 1 ? '' : 's'} Today`}
+          </Text>
+          <Text style={styles.progressSubtitle}>
+            {isDropUnlocked
+              ? "You've unlocked tomorrow's 9:00 AM daily match drop. Your latest shared videos are computing your compatibility vectors!"
+              : "Share at least 3 videos today so our AI can match you with people who share your humor & aesthetic."}
+          </Text>
+
+          {/* 3 Milestone Slots */}
+          <View style={styles.milestonesRow}>
+            {[0, 1, 2].map((idx) => {
+              const item = todayItems[idx];
+              const isCompleted = idx < sharedCount;
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.milestoneSlot,
+                    isCompleted && styles.milestoneSlotCompleted,
+                  ]}
+                >
+                  {item ? (
+                    <TouchableOpacity
+                      style={styles.milestoneThumbContainer}
+                      activeOpacity={0.75}
+                      onPress={() =>
+                        Linking.openURL(item.url).catch(() =>
+                          Alert.alert('Error', 'Cannot open Instagram.')
+                        )
+                      }
+                    >
+                      <InstagramThumbnail
+                        url={item.url}
+                        thumbnailUrl={item.thumbnail_url}
+                        width={86}
+                        height={108}
+                        borderRadius={12}
+                      />
+                      {/* Check badge on top right */}
+                      <View style={styles.milestoneCheckBadge}>
+                        <Check size={11} color="#FFFFFF" strokeWidth={3} />
+                      </View>
+                      {/* External link hint on bottom right */}
+                      <View style={styles.milestoneTapHint}>
+                        <ExternalLink size={10} color="#FFFFFF" strokeWidth={2.5} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.milestoneEmptyTrigger}
+                      onPress={() => {
+                        handlePaste();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.milestoneNumberBg}>
+                        <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
+                      </View>
+                      <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
+                    </TouchableOpacity>
                   )}
                 </View>
-              </View>
+              );
+            })}
+          </View>
 
-              <View style={styles.metadataGrid}>
-                <View style={styles.metadataItem}>
-                  <Text style={styles.metaLabel}>Type</Text>
-                  <View style={styles.metaTypeRow}>
-                    {sharedUrl.includes('/reel/') ? (
-                      <>
-                        <Film size={14} color={COLORS.accent} />
-                        <Text style={styles.metaValue}>Reel</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Camera size={14} color={COLORS.accent} />
-                        <Text style={styles.metaValue}>Post</Text>
-                      </>
-                    )}
-                  </View>
+          {/* Progress Track */}
+          <View style={styles.progressTrackBg}>
+            <View style={[styles.progressTrackFill, { width: `${progressPercent}%` }]} />
+          </View>
+        </View>
+
+        {/* Input Card */}
+        <View style={styles.glassCard}>
+          <Text style={styles.cardTitle}>Share Now!</Text>
+          <Text style={styles.cardDescription}>
+            Paste an Instagram URL or share directly from Instagram.
+          </Text>
+
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="https://www.instagram.com/p/..."
+              placeholderTextColor={COLORS.textDarkSecondary}
+              value={inputText}
+              onChangeText={setInputText}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {inputText ? (
+              <TouchableOpacity onPress={() => setInputText('')} style={styles.clearInputButton}>
+                <Text style={styles.clearInputText}>✕</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={handlePaste} style={styles.pasteButton}>
+                <Text style={styles.pasteButtonText}>Paste</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <TouchableWithoutFeedback
+            onPress={handleManualSubmit}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+          >
+            <Animated.View style={[styles.primaryButton, { transform: [{ scale: buttonScale }] }]}>
+              <Text style={styles.primaryButtonText}>
+                {isProcessing ? 'Sharing...' : 'Share Now!'}
+              </Text>
+            </Animated.View>
+          </TouchableWithoutFeedback>
+        </View>
+      </ScrollView>
+
+      {/* ── Confirmation Bottom Sheet ─────────────────────────────────── */}
+      <BottomSheetModal
+        ref={confirmSheetRef}
+        enableDynamicSizing
+        backdropComponent={renderBackdrop}
+        backgroundStyle={confirmStyles.sheetBg}
+        handleIndicatorStyle={confirmStyles.handle}
+        enablePanDownToClose
+      >
+        <BottomSheetView style={confirmStyles.content}>
+          {/* Icon */}
+          <View style={confirmStyles.iconWrap}>
+            <Sparkles size={28} color={COLORS.textDark} />
+          </View>
+
+          {/* Heading */}
+          <Text style={confirmStyles.title}>Share This Reel?</Text>
+          <Text style={confirmStyles.body}>
+            You are sharing a video.{' '}
+            <Text style={confirmStyles.highlight}>
+              This will be your {reelLabel} reel of the day!
+            </Text>
+            {sharedCount < 3
+              ? `\n\nYou need ${3 - sharedCount-1} more video${3 - sharedCount-1 === 1 ? '' : 's'} to unlock tomorrow's match drop. 🔥`
+              : '\n\nYou\'ve already hit your daily goal! Bonus reel incoming. 🎉'}
+          </Text>
+
+          {/* URL pill */}
+          {pendingUrl ? (
+            <View style={confirmStyles.urlPill}>
+              <Text style={confirmStyles.urlText} numberOfLines={1}>
+                {pendingUrl.replace('https://www.instagram.com', 'instagram.com')}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Actions */}
+          <View style={confirmStyles.actions}>
+            <TouchableOpacity style={confirmStyles.cancelBtn} onPress={handleCancel} activeOpacity={0.75}>
+              <Text style={confirmStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={confirmStyles.confirmBtn} onPress={handleConfirm} activeOpacity={0.8}>
+              <Text style={confirmStyles.confirmText}>Share It! 🚀</Text>
+            </TouchableOpacity>
+          </View>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      {/* ── Invalid URL Bottom Sheet ───────────────────────────────────── */}
+      <BottomSheetModal
+        ref={invalidSheetRef}
+        enableDynamicSizing
+        backdropComponent={renderBackdrop}
+        backgroundStyle={invalidStyles.sheetBg}
+        handleIndicatorStyle={confirmStyles.handle}
+        enablePanDownToClose
+        onDismiss={() => setInvalidUrl(null)}
+      >
+        <BottomSheetView style={invalidStyles.content}>
+          {/* Icon */}
+          <View style={invalidStyles.iconWrap}>
+            <XCircle size={30} color={COLORS.textDark} />
+          </View>
+
+          <Text style={invalidStyles.title}>Not an Instagram URL</Text>
+          <Text style={invalidStyles.body}>
+            This doesn't look like an Instagram reel link. Please share a URL from{' '}
+            <Text style={invalidStyles.highlight}>instagram</Text>.
+          </Text>
+
+          {/* Bad URL pill */}
+          {invalidUrl ? (
+            <View style={invalidStyles.urlPill}>
+              <Text style={invalidStyles.urlText} numberOfLines={2}>
+                {invalidUrl}
+              </Text>
+            </View>
+          ) : null}
+
+          <Text style={invalidStyles.hint}>
+            Example:{' '}
+            <Text style={invalidStyles.hintCode}>instagram.com/reel/ABC123</Text>
+          </Text>
+
+          <TouchableOpacity
+            style={invalidStyles.dismissBtn}
+            onPress={() => invalidSheetRef.current?.dismiss()}
+            activeOpacity={0.8}
+          >
+            <Text style={invalidStyles.dismissText}>Got it</Text>
+          </TouchableOpacity>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      {/* ── How to Share Help Bottom Sheet ─────────────────────────────── */}
+      <BottomSheetModal
+        ref={helpSheetRef}
+        enableDynamicSizing
+        backdropComponent={renderBackdrop}
+        backgroundStyle={helpStyles.sheetBg}
+        handleIndicatorStyle={confirmStyles.handle}
+        enablePanDownToClose
+      >
+        <BottomSheetView style={helpStyles.content}>
+          {/* Header Icon */}
+          <View style={helpStyles.iconWrap}>
+            <Zap size={28} color="#1C0B05" fill="#FFBE54" />
+          </View>
+
+          <Text style={helpStyles.title}>How to Share Reels</Text>
+          <Text style={helpStyles.subtitle}>
+            Share 3 Instagram Reels daily to teach our AI your humor & aesthetic and unlock tomorrow's 9:00 AM match drop!
+          </Text>
+
+          {/* Methods Guide */}
+          <View style={helpStyles.methodsContainer}>
+            {/* Method 1: Direct iOS Share Sheet */}
+            <View style={helpStyles.methodCard}>
+              <View style={helpStyles.methodHeader}>
+                <View style={helpStyles.stepBadge}>
+                  <Text style={helpStyles.stepBadgeText}>1</Text>
                 </View>
-                <View style={styles.metadataItem}>
-                  <Text style={styles.metaLabel}>Shortcode</Text>
-                  <Text style={styles.metaValue} numberOfLines={1}>
-                    {(() => {
-                      const regex = /\/(?:p|reel)\/([A-Za-z0-9_-]+)/;
-                      const match = sharedUrl.match(regex);
-                      return match ? match[1] : 'Unknown';
-                    })()}
+                <View style={{ flex: 1 }}>
+                  <Text style={helpStyles.methodTitle}>Direct Share (Fastest ⚡)</Text>
+                  <Text style={helpStyles.methodDesc}>
+                    Tap <Text style={helpStyles.boldText}>Share ✈️</Text> on any Reel in Instagram → choose <Text style={helpStyles.boldText}>Share to...</Text> → tap <Text style={helpStyles.boldText}>Vibiy</Text>.
                   </Text>
                 </View>
               </View>
+            </View>
 
-              <View style={styles.actionBar}>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.actionPrimary]}
-                  onPress={() => {
-                    Linking.openURL(sharedUrl).catch(() =>
-                      Alert.alert('Error', 'Cannot open Instagram app.')
-                    );
-                  }}
-                >
-                  <Text style={styles.actionButtonText}>Open Instagram</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.actionSecondary]}
-                  onPress={() => {
-                    Clipboard.setString(sharedUrl);
-                    Alert.alert('Copied', 'URL copied to clipboard.');
-                  }}
-                >
-                  <Text style={[styles.actionButtonText, styles.actionSecondaryText]}>Copy Link</Text>
-                </TouchableOpacity>
+            {/* Method 2: Copy & Paste Link */}
+            <View style={helpStyles.methodCard}>
+              <View style={helpStyles.methodHeader}>
+                <View style={helpStyles.stepBadge}>
+                  <Text style={helpStyles.stepBadgeText}>2</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={helpStyles.methodTitle}>Copy & Paste Link 📋</Text>
+                  <Text style={helpStyles.methodDesc}>
+                    Tap <Text style={helpStyles.boldText}>Share → Copy link</Text> on Instagram, open Vibiy and tap <Text style={helpStyles.boldText}>Paste</Text>.
+                  </Text>
+                </View>
               </View>
             </View>
-          </Animated.View>
-        );
-      })()}
-    </ScrollView>
+
+            {/* Pro Tip */}
+            <View style={helpStyles.proTipCard}>
+              <Text style={helpStyles.proTipTitle}>💡 iOS Share Sheet Pro-Tip</Text>
+              <Text style={helpStyles.proTipText}>
+                Don't see Vibiy in the share sheet? Scroll right, tap <Text style={helpStyles.boldText}>More (⋯)</Text>, and add <Text style={helpStyles.boldText}>Vibiy</Text> to your <Text style={helpStyles.boldText}>Favorites</Text> for 1-tap sharing!
+              </Text>
+            </View>
+          </View>
+
+          {/* Dismiss CTA */}
+          <TouchableOpacity
+            style={helpStyles.gotItBtn}
+            onPress={() => helpSheetRef.current?.dismiss()}
+            activeOpacity={0.85}
+          >
+            <Text style={helpStyles.gotItBtnText}>Got It! Let's Share ✨</Text>
+          </TouchableOpacity>
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
   );
 }
+
+const helpStyles = StyleSheet.create({
+  sheetBg: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    paddingTop: 8,
+    alignItems: 'center',
+  },
+  iconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    marginTop: 6,
+    ...SHADOWS.sm,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 6,
+    letterSpacing: -0.3,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: COLORS.textDarkSecondary,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  methodsContainer: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 24,
+  },
+  methodCard: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.md,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  methodHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  stepBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  stepBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#1C0B05',
+  },
+  methodTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 3,
+  },
+  methodDesc: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: COLORS.textDarkSecondary,
+  },
+  boldText: {
+    fontWeight: '800',
+    color: COLORS.textDark,
+  },
+  proTipCard: {
+    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    borderRadius: RADIUS.md,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  proTipTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 3,
+  },
+  proTipText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.textDarkSecondary,
+  },
+  gotItBtn: {
+    width: '100%',
+    height: 52,
+    borderRadius: RADIUS.pill,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.floating,
+  },
+  gotItBtnText: {
+    color: '#1C0B05',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+});
+
+const invalidStyles = StyleSheet.create({
+  sheetBg: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  content: {
+    paddingHorizontal: 28,
+    paddingBottom: 40,
+    paddingTop: 8,
+    alignItems: 'center',
+  },
+  iconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#FFE5E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 10,
+    letterSpacing: -0.4,
+    textAlign: 'center',
+  },
+  body: {
+    fontSize: 14,
+    color: COLORS.textDarkSecondary,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 14,
+  },
+  highlight: {
+    color: COLORS.textDark,
+    fontWeight: '800',
+  },
+  urlPill: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(220,50,50,0.2)',
+  },
+  urlText: {
+    fontSize: 12,
+    color: '#C0392B',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  hint: {
+    fontSize: 12,
+    color: COLORS.textDarkSecondary,
+    marginBottom: 28,
+    textAlign: 'center',
+  },
+  hintCode: {
+    fontWeight: '700',
+    color: COLORS.textDark,
+  },
+  dismissBtn: {
+    width: '100%',
+    height: 52,
+    borderRadius: RADIUS.pill,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.floating,
+  },
+  dismissText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C0B05',
+  },
+});
+
+const confirmStyles = StyleSheet.create({
+  sheetBg: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  handle: {
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    width: 40,
+  },
+  content: {
+    paddingHorizontal: 28,
+    paddingBottom: 40,
+    paddingTop: 8,
+    alignItems: 'center',
+  },
+  iconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 10,
+    letterSpacing: -0.4,
+    textAlign: 'center',
+  },
+  body: {
+    fontSize: 14,
+    color: COLORS.textDarkSecondary,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  highlight: {
+    color: COLORS.textDark,
+    fontWeight: '800',
+  },
+  urlPill: {
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 28,
+    maxWidth: '100%',
+  },
+  urlText: {
+    fontSize: 12,
+    color: COLORS.textDarkSecondary,
+    fontWeight: '600',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  cancelBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.cardBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(94, 88, 115, 0.15)',
+  },
+  cancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.textDarkSecondary,
+  },
+  confirmBtn: {
+    flex: 1,
+    height: 52,
+    borderRadius: RADIUS.pill,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.floating,
+  },
+  confirmText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C0B05',
+  },
+});
 
 const styles = StyleSheet.create({
   scrollContainer: {
@@ -445,6 +1153,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  progressRightControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  helpIconButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.sm,
+  },
+  helpQuestionMark: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C0B05',
   },
   progressBadge: {
     flexDirection: 'row',
@@ -497,25 +1224,31 @@ const styles = StyleSheet.create({
   milestonesRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: 12,
     marginBottom: 16,
   },
   milestoneSlot: {
     flex: 1,
-    height: 116,
-    backgroundColor: COLORS.cardBg,
-    borderRadius: 14,
+    height: 118,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-    borderStyle: 'dashed',
+    borderColor: 'rgba(51, 16, 5, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
+    ...SHADOWS.sm,
   },
   milestoneSlotCompleted: {
-    borderStyle: 'solid',
-    borderColor: COLORS.accent,
-    ...SHADOWS.sm,
+    borderWidth: 2,
+    borderColor: '#FFBE54',
+    backgroundColor: COLORS.cardBg,
+    ...SHADOWS.md,
+  },
+  milestoneThumbWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
   },
   milestoneThumbContainer: {
     width: '100%',
@@ -524,53 +1257,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  milestoneTapHint: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   milestoneCheckBadge: {
     position: 'absolute',
     top: 6,
     right: 6,
-    backgroundColor: COLORS.accent,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    backgroundColor: '#FFBE54',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
+    ...SHADOWS.sm,
   },
   milestoneEmptyTrigger: {
     flex: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     padding: 8,
   },
   milestoneNumberBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFBE54',
     alignItems: 'center',
     justifyContent: 'center',
+    ...SHADOWS.sm,
   },
   milestoneNumberText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: COLORS.textDarkSecondary,
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C0B05',
   },
   milestoneSlotLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.textDarkSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.textDark,
   },
   progressTrackBg: {
     width: '100%',
-    height: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    borderRadius: 3,
+    height: 8,
+    backgroundColor: 'rgba(51, 16, 5, 0.08)',
+    borderRadius: 4,
     overflow: 'hidden',
+    marginTop: 4,
   },
   progressTrackFill: {
     height: '100%',
-    backgroundColor: COLORS.accent,
-    borderRadius: 3,
+    backgroundColor: '#FFBE54',
+    borderRadius: 4,
   },
   glassCard: {
     backgroundColor: COLORS.cardBgIvory,
@@ -578,16 +1326,36 @@ const styles = StyleSheet.create({
     padding: 24,
     ...SHADOWS.md,
   },
+  inputCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  inputHelpBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.accent,
+    ...SHADOWS.sm,
+  },
+  inputHelpBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#1C0B05',
+  },
   cardTitle: {
     fontSize: 20,
     fontWeight: '800',
     color: COLORS.textDark,
-    marginBottom: 6,
     letterSpacing: -0.3,
   },
   cardDescription: {
     fontSize: 14,
-    color: COLORS.textDarkSecondary,
+    color: COLORS.textDark,
     lineHeight: 20,
     marginBottom: 20,
   },

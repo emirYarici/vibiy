@@ -5,17 +5,21 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Heart, Search, MessageCircle, Sparkles } from 'lucide-react-native';
+import { Heart, MessageCircle, Sparkles } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { DBProfile, MatchRecord, MessageRecord, getMatchArchetype } from '../shared/types';
 import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
+import SkeletonImage from '../components/SkeletonImage';
+import DailyDropCountdown from '../components/DailyDropCountdown';
+import DailyMatchCard from '../components/DailyMatchCard';
+import CompareVibesSheet from '../components/CompareVibesSheet';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import {
   DEMO_PROFILES,
   DEMO_MATCHES,
@@ -50,10 +54,49 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
   const [matches, setMatches] = useState<MatchRecord[]>([]);
   const [profiles, setProfiles] = useState<Record<string, DBProfile>>({});
   const [messages, setMessages] = useState<MessageRecord[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [compareTarget, setCompareTarget] = useState<{ profile: DBProfile; score: number } | null>(null);
 
   const currentUserId = session?.user?.id || 'demo-guest-user';
+
+  const handleStartChat = (profile: DBProfile) => {
+    const match = matches.find(
+      (m) => m.user_a === profile.id || m.user_b === profile.id
+    );
+    if (match) {
+      navigation.navigate('Chat', {
+        matchId: match.id,
+        session,
+        isDemoMode,
+      });
+    }
+  };
+
+  const handleOpenProfile = (profile: DBProfile, score: number) => {
+    navigation.navigate('ProfileDetails', {
+      profile,
+      score,
+      session,
+      isDemoMode,
+      activeChatMatchId: null,
+      onChatNow: () => handleStartChat(profile),
+      onCompareVibes: () => setCompareTarget({ profile, score }),
+    });
+  };
+
+  const handleStartChatWithPrompt = (prompt: string) => {
+    if (!compareTarget) return;
+    const match = matches.find(
+      (m) => m.user_a === compareTarget.profile.id || m.user_b === compareTarget.profile.id
+    );
+    if (match) {
+      navigation.navigate('Chat', {
+        matchId: match.id,
+        session,
+        isDemoMode,
+        initialMessage: prompt,
+      });
+    }
+  };
 
   // Load Matches, Profiles, and Message log (to show snippet of last message)
   const fetchData = useCallback(async () => {
@@ -191,6 +234,18 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     }
   }, [fetchData, isDemoMode]);
 
+  // Helper to check if match was created today
+  const isMatchToday = (dateString?: string) => {
+    if (!dateString) return false;
+    const d = new Date(dateString);
+    const now = new Date();
+    return (
+      d.getDate() === now.getDate() &&
+      d.getMonth() === now.getMonth() &&
+      d.getFullYear() === now.getFullYear()
+    );
+  };
+
   // Group Matches and compile details
   const matchedUsers = matches
     .map((match) => {
@@ -201,6 +256,7 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
 
       return {
         matchId: match.id,
+        createdAt: match.created_at,
         profile: otherProfile || {
           id: otherUserId,
           full_name: 'Friend',
@@ -214,14 +270,11 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     })
     .filter((item) => item.profile !== undefined);
 
-  // Filter with search if active
-  const filteredUsers = matchedUsers.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    return item.profile.full_name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  // Today's curated drops (matches created today)
+  const todayDrops = matchedUsers.filter((item) => isMatchToday(item.createdAt));
 
-  const newMatches = filteredUsers.filter((mu) => !mu.lastMessage);
-  const conversations = filteredUsers
+  const newMatches = matchedUsers.filter((mu) => !mu.lastMessage);
+  const conversations = matchedUsers
     .filter((mu) => !!mu.lastMessage)
     .sort((a, b) => {
       const timeA = new Date(a.lastMessage!.created_at).getTime();
@@ -234,44 +287,20 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
-        <Text style={styles.loadingText}>Finding your matches...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
+    <BottomSheetModalProvider>
+      <View style={styles.container}>
       {/* Top Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
-        <TouchableOpacity
-          style={styles.searchIconButton}
-          onPress={() => setShowSearchInput(!showSearchInput)}
-          activeOpacity={0.8}
-        >
-          <Search size={20} color={COLORS.textPrimary} strokeWidth={2.2} />
-        </TouchableOpacity>
       </View>
 
-      {/* Search Input Bar (Expandable) */}
-      {showSearchInput && (
-        <View style={styles.searchBarContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search conversations..."
-            placeholderTextColor={COLORS.textMuted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoFocus
-          />
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.accent} />
+          <Text style={styles.loadingText}>Finding your matches...</Text>
         </View>
-      )}
-
-      {matchedUsers.length === 0 ? (
+      ) : matchedUsers.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIconCircle}>
             <Heart size={36} color={COLORS.accent} strokeWidth={2} fill={COLORS.accentLight} />
@@ -283,9 +312,48 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Horizontal Active Stories / New Matches */}
+          {/* 1. Daily Drop Countdown Header */}
+          <DailyDropCountdown totalDailyMatches={todayDrops.length} />
+
+          {/* 2. Daily Drops Section (Only shown when there are actual drops today) */}
+          {todayDrops.length > 0 && (
+            <View style={styles.dailyDropsSection}>
+              <View style={styles.sectionHeaderRow}>
+                <View style={styles.sectionHeaderTitleGroup}>
+                  <Sparkles size={14} color={COLORS.accent} />
+                  <Text style={styles.sectionHeaderTitle}>TODAY'S DAILY DROPS</Text>
+                </View>
+                <View style={styles.cardCountBadge}>
+                  <Text style={styles.cardCountText}>
+                    {todayDrops.length} MATCH{todayDrops.length === 1 ? '' : 'ES'}
+                  </Text>
+                </View>
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.dailyDropsScroll}
+              >
+                {todayDrops.map((item) => (
+                  <DailyMatchCard
+                    key={item.matchId}
+                    matchId={item.matchId}
+                    profile={item.profile}
+                    score={item.score}
+                    onOpenProfile={handleOpenProfile}
+                    onCompareVibes={(prof, sc) => setCompareTarget({ profile: prof, score: sc })}
+                    onStartChat={handleStartChat}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* 3. Horizontal Active Stories / New Matches */}
           {newMatches.length > 0 && (
             <View style={styles.storiesSection}>
+              <Text style={styles.storiesSectionLabel}>NEW DISCOVERIES</Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -298,28 +366,10 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
                       key={item.matchId}
                       style={styles.storyItem}
                       activeOpacity={0.85}
-                      onPress={() => {
-                        navigation.navigate('ProfileDetails', {
-                          profile: item.profile,
-                          score: item.score,
-                          activeChatMatchId: null,
-                          onChatNow: () => {
-                            const match = matches.find(
-                              (m) => m.user_a === item.profile.id || m.user_b === item.profile.id
-                            );
-                            if (match) {
-                              navigation.replace('Chat', {
-                                matchId: match.id,
-                                session,
-                                isDemoMode,
-                              });
-                            }
-                          },
-                        });
-                      }}
+                      onPress={() => handleOpenProfile(item.profile, item.score)}
                     >
                       <View style={styles.storyAvatarWrapper}>
-                        <Image
+                        <SkeletonImage
                           source={{
                             uri:
                               (item.profile.photos && item.profile.photos[0]) ||
@@ -346,9 +396,9 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
             </View>
           )}
 
-          {/* Main White Card for Active Conversations */}
+          {/* 4. Main White Card for Active Conversations */}
           <View style={styles.chatsCard}>
-            <Text style={styles.sectionLabel}>Active</Text>
+            <Text style={styles.sectionLabel}>Active Conversations</Text>
 
             {conversations.length === 0 ? (
               <View style={styles.noChatsInner}>
@@ -384,7 +434,7 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
                       }
                     >
                       <View style={styles.convoAvatarWrapper}>
-                        <Image
+                        <SkeletonImage
                           source={{
                             uri:
                               (item.profile.photos && item.profile.photos[0]) ||
@@ -430,9 +480,22 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
           </View>
         </ScrollView>
       )}
+
+      {/* Compare Our Vibes Modal Sheet (Real DB Data) */}
+      <CompareVibesSheet
+        visible={compareTarget !== null}
+        onClose={() => setCompareTarget(null)}
+        currentUserId={currentUserId}
+        partnerProfile={compareTarget?.profile || null}
+        score={compareTarget?.score}
+        isDemoMode={isDemoMode}
+        onStartChatWithPrompt={handleStartChatWithPrompt}
+      />
     </View>
-  );
+  </BottomSheetModalProvider>
+);
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -453,30 +516,6 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     letterSpacing: -0.5,
   },
-  searchIconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.cardBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.sm,
-  },
-  searchBarContainer: {
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-  },
-  searchInput: {
-    backgroundColor: COLORS.cardBg,
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    ...SHADOWS.sm,
-  },
   loadingContainer: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -493,13 +532,58 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 110,
   },
+  /* Daily Drops Showcase */
+  dailyDropsSection: {
+    marginBottom: 24,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  sectionHeaderTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sectionHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFBE54',
+    letterSpacing: 0.8,
+  },
+  cardCountBadge: {
+    backgroundColor: 'rgba(255, 190, 84, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: RADIUS.pill,
+  },
+  cardCountText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFBE54',
+  },
+  dailyDropsScroll: {
+    paddingHorizontal: 20,
+  },
   storiesSection: {
     marginBottom: 20,
+  },
+  storiesSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.6)',
+    letterSpacing: 0.6,
+    paddingHorizontal: 24,
+    marginBottom: 12,
   },
   storiesScroll: {
     paddingHorizontal: 24,
     gap: 16,
   },
+
   storyItem: {
     alignItems: 'center',
     width: 66,

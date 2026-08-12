@@ -9,18 +9,18 @@ import {
   Alert,
   ActivityIndicator,
   Image,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   PermissionsAndroid,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { ArrowLeft, ArrowRight, Check, Camera, MapPin } from 'lucide-react-native';
+import { ArrowLeft, ArrowRight, Check, Camera, MapPin, Sparkles, Send, Flame, Zap, Share2 } from 'lucide-react-native';
 import Geolocation from 'react-native-geolocation-service';
 
 import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
+import SkeletonImage from '../components/SkeletonImage';
 
 interface ProfileOnboardingProps {
   session: any;
@@ -119,7 +119,7 @@ export default function ProfileOnboarding({
         Alert.alert('Required', 'Please enter your name.');
         return;
       }
-      const parsedAge = parseInt(age.trim());
+      const parsedAge = parseInt(age.trim(), 10);
       if (isNaN(parsedAge) || parsedAge < 18 || parsedAge > 120) {
         Alert.alert('Required', 'Please enter a valid age (18 or older).');
         return;
@@ -136,6 +136,11 @@ export default function ProfileOnboarding({
     } else if (currentStep === 3) {
       if (!latitude || !longitude) {
         Alert.alert('Required', 'Please allow permission and capture your location.');
+        return;
+      }
+    } else if (currentStep === 5) {
+      if (!photos[0]) {
+        Alert.alert('Required', 'Please upload a primary profile photo (slot 1).');
         return;
       }
     }
@@ -245,7 +250,7 @@ export default function ProfileOnboarding({
   const renderStepIndicator = () => {
     return (
       <View style={styles.stepperContainer}>
-        {[1, 2, 3, 4, 5].map((step) => (
+        {[1, 2, 3, 4, 5, 6].map((step) => (
           <View key={step} style={styles.stepIndicatorWrapper}>
             <View
               style={[
@@ -254,7 +259,7 @@ export default function ProfileOnboarding({
               ]}
             >
               {currentStep > step ? (
-                <Check size={14} color="#FFFFFF" strokeWidth={3} />
+                <Check size={13} color="#1C0B05" strokeWidth={3.5} />
               ) : (
                 <Text
                   style={[
@@ -266,7 +271,7 @@ export default function ProfileOnboarding({
                 </Text>
               )}
             </View>
-            {step < 5 && (
+            {step < 6 && (
               <View
                 style={[
                   styles.stepLine,
@@ -293,7 +298,7 @@ export default function ProfileOnboarding({
               <TextInput
                 style={styles.textInput}
                 placeholder="What should we call you?"
-                placeholderTextColor={COLORS.textMuted}
+                placeholderTextColor={COLORS.textDarkSecondary}
                 value={name}
                 onChangeText={setName}
                 autoCorrect={false}
@@ -305,7 +310,7 @@ export default function ProfileOnboarding({
               <TextInput
                 style={styles.textInput}
                 placeholder="Must be 18 or older"
-                placeholderTextColor={COLORS.textMuted}
+                placeholderTextColor={COLORS.textDarkSecondary}
                 keyboardType="numeric"
                 value={age}
                 onChangeText={setAge}
@@ -395,7 +400,7 @@ export default function ProfileOnboarding({
                       disabled={locating}
                     >
                       {locating ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <ActivityIndicator size="small" color="#1C0B05" />
                       ) : (
                         <Text style={styles.locationBtnText}>Enable Location</Text>
                       )}
@@ -417,7 +422,7 @@ export default function ProfileOnboarding({
               <TextInput
                 style={[styles.textInput, styles.textArea]}
                 placeholder="What are your hobbies? What music do you listen to? Share your style..."
-                placeholderTextColor={COLORS.textMuted}
+                placeholderTextColor={COLORS.textDarkSecondary}
                 multiline
                 numberOfLines={5}
                 value={bio}
@@ -444,7 +449,7 @@ export default function ProfileOnboarding({
                 </View>
               ) : photos[0] ? (
                 <View style={styles.slotImageContainer}>
-                  <Image source={{ uri: photos[0] }} style={styles.slotImage} />
+                  <SkeletonImage source={{ uri: photos[0] }} style={styles.slotImage} />
                   <View style={styles.primaryCoverBadge}>
                     <Text style={styles.primaryCoverBadgeText}>PRIMARY COVER</Text>
                   </View>
@@ -500,7 +505,7 @@ export default function ProfileOnboarding({
                       </View>
                     ) : photoUri ? (
                       <View style={styles.slotImageContainer}>
-                        <Image source={{ uri: photoUri }} style={styles.slotImage} />
+                        <SkeletonImage source={{ uri: photoUri }} style={styles.slotImage} />
                         <TouchableOpacity
                           style={styles.secondaryDeleteBtn}
                           onPress={() => handlePhotoDelete(index)}
@@ -524,13 +529,102 @@ export default function ProfileOnboarding({
             </ScrollView>
           </View>
         );
+      case 6:
+        return (
+          <View style={styles.stepContent}>
+            <View style={styles.shareHeaderBadge}>
+              <Zap size={14} color={COLORS.textDark} />
+              <Text style={styles.shareHeaderBadgeText}>INSTAGRAM DIRECT SHARE</Text>
+            </View>
+
+            <Text style={styles.stepTitle}>Share with 1 Tap</Text>
+            <Text style={styles.stepSubtitle}>
+              Send Instagram Reels directly to Vibiy using the native iOS Share Sheet — no copying links needed!
+            </Text>
+
+            {/* 3 Step Visual Sequence */}
+            <View style={styles.shareGuideContainer}>
+              {/* Step 1 */}
+              <View style={styles.shareStepCard}>
+                <View style={styles.shareStepNumberCircle}>
+                  <Text style={styles.shareStepNumberText}>1</Text>
+                </View>
+                <View style={styles.shareStepBody}>
+                  <View style={styles.shareStepTitleRow}>
+                    <Text style={styles.shareStepTitle}>Find a Reel on Instagram</Text>
+                    <Send size={16} color={COLORS.textDarkSecondary} />
+                  </View>
+                  <Text style={styles.shareStepDesc}>
+                    When watching a Reel that matches your vibe, tap the <Text style={styles.boldText}>Share ✈️</Text> icon.
+                  </Text>
+                </View>
+              </View>
+
+              {/* Step 2 */}
+              <View style={styles.shareStepCard}>
+                <View style={styles.shareStepNumberCircle}>
+                  <Text style={styles.shareStepNumberText}>2</Text>
+                </View>
+                <View style={styles.shareStepBody}>
+                  <View style={styles.shareStepTitleRow}>
+                    <Text style={styles.shareStepTitle}>Choose Vibiy in Share Sheet</Text>
+                    <Share2 size={16} color={COLORS.textDarkSecondary} />
+                  </View>
+                  <Text style={styles.shareStepDesc}>
+                    Tap <Text style={styles.boldText}>Share to...</Text> and select <Text style={styles.boldText}>Vibiy</Text> from your iOS share menu.
+                  </Text>
+                </View>
+              </View>
+
+              {/* Step 3 */}
+              <View style={styles.shareStepCard}>
+                <View style={styles.shareStepNumberCircle}>
+                  <Text style={styles.shareStepNumberText}>3</Text>
+                </View>
+                <View style={styles.shareStepBody}>
+                  <View style={styles.shareStepTitleRow}>
+                    <Text style={styles.shareStepTitle}>Auto-Synced & Analyzed</Text>
+                    <Sparkles size={16} color={COLORS.accent} />
+                  </View>
+                  <Text style={styles.shareStepDesc}>
+                    Vibiy instantly receives the reel, analyzes the vibe with AI, and counts it toward your daily goal!
+                  </Text>
+                </View>
+              </View>
+
+              {/* Pro Tip Callout */}
+              <View style={styles.proTipCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <Text style={{ fontSize: 14 }}>💡</Text>
+                  <Text style={styles.proTipTitle}>iOS Share Setup</Text>
+                </View>
+                <Text style={styles.proTipText}>
+                  Don't see Vibiy in the share row? Scroll right, tap <Text style={styles.boldText}>More (⋯)</Text>, and add <Text style={styles.boldText}>Vibiy</Text> to your <Text style={styles.boldText}>Favorites</Text>.
+                </Text>
+              </View>
+
+              {/* Rule of 3 Banner */}
+              <View style={styles.ruleBanner}>
+                <View style={styles.ruleFlameIconBg}>
+                  <Flame size={20} color="#E4281F" fill="#FFBE54" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.ruleBannerTitle}>3 Reels Every Day 🔥</Text>
+                  <Text style={styles.ruleBannerSub}>
+                    Share 3 Reels daily before midnight to receive your next batch of matched connections.
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        );
       default:
         return null;
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
+    <View style={styles.safeContainer}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.container}
@@ -546,18 +640,18 @@ export default function ProfileOnboarding({
 
         <View style={styles.footer}>
           {currentStep > 1 ? (
-            <TouchableOpacity style={styles.backButton} onPress={handleBack} disabled={submitting}>
-              <ArrowLeft size={20} color={COLORS.textPrimary} />
+            <TouchableOpacity style={styles.backButton} onPress={handleBack} disabled={submitting} activeOpacity={0.75}>
+              <ArrowLeft size={18} color="#FFFFFF" strokeWidth={2.5} />
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
           ) : (
             <View style={{ width: 80 }} />
           )}
 
-          {currentStep < 5 ? (
+          {currentStep < 6 ? (
             <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
               <Text style={styles.nextButtonText}>Next</Text>
-              <ArrowRight size={20} color="#FFFFFF" />
+              <ArrowRight size={20} color="#1C0B05" strokeWidth={2.5} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -566,18 +660,18 @@ export default function ProfileOnboarding({
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color="#1C0B05" />
               ) : (
                 <>
-                  <Text style={styles.nextButtonText}>Complete</Text>
-                  <Check size={20} color="#FFFFFF" strokeWidth={2.5} />
+                  <Text style={styles.nextButtonText}>Let's Vibe!</Text>
+                  <Sparkles size={20} color="#1C0B05" strokeWidth={2.5} />
                 </>
               )}
             </TouchableOpacity>
           )}
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -585,6 +679,7 @@ const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
     backgroundColor: COLORS.bg,
+    paddingTop: Platform.OS === 'ios' ? 48 : 16,
   },
   container: {
     flex: 1,
@@ -592,22 +687,22 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 24,
     paddingTop: 16,
-    paddingBottom: 8,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.cardBorder,
+    borderBottomColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: 2,
-    marginBottom: 16,
+    color: '#FFFFFF',
+    letterSpacing: 3,
+    marginBottom: 14,
   },
   stepperContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '70%',
+    width: '92%',
     justifyContent: 'center',
   },
   stepIndicatorWrapper: {
@@ -620,40 +715,42 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 2,
   },
   activeStepCircle: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
+    backgroundColor: '#FFBE54',
+    borderColor: '#FFBE54',
   },
   inactiveStepCircle: {
-    backgroundColor: COLORS.bg,
-    borderColor: COLORS.cardBorder,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
   stepText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   activeStepText: {
-    color: '#FFFFFF',
+    color: '#1C0B05',
   },
   inactiveStepText: {
-    color: COLORS.textMuted,
+    color: '#FFFFFF',
   },
   stepLine: {
-    width: 40,
-    height: 2,
+    width: 22,
+    height: 3,
+    borderRadius: 1.5,
   },
   activeStepLine: {
-    backgroundColor: COLORS.accent,
+    backgroundColor: '#FFBE54',
   },
   inactiveStepLine: {
-    backgroundColor: COLORS.cardBorder,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   scrollContent: {
     flexGrow: 1,
-    padding: 24,
-    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 36,
   },
   stepContent: {
     width: '100%',
@@ -683,17 +780,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   textInput: {
-    backgroundColor: COLORS.cardBg,
+    backgroundColor: COLORS.cardBgIvory,
     borderRadius: RADIUS.sm,
     paddingHorizontal: 18,
-    color: COLORS.textPrimary,
+    color: COLORS.textDark,
     fontSize: 16,
     height: 52,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
     ...SHADOWS.sm,
   },
   textArea: {
     height: 120,
     paddingTop: 14,
+    color: COLORS.textDark,
     textAlignVertical: 'top',
   },
   slotSectionLabel: {
@@ -863,18 +963,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 18,
+    borderRadius: RADIUS.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    gap: 6,
   },
   backButtonText: {
-    color: COLORS.textSecondary,
+    color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   nextButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.accent,
+    backgroundColor: '#FFBE54',
     paddingVertical: 14,
     paddingHorizontal: 26,
     borderRadius: RADIUS.pill,
@@ -884,7 +988,7 @@ const styles = StyleSheet.create({
   finishButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.accent,
+    backgroundColor: '#FFBE54',
     paddingVertical: 14,
     paddingHorizontal: 26,
     borderRadius: RADIUS.pill,
@@ -892,9 +996,9 @@ const styles = StyleSheet.create({
     ...SHADOWS.floating,
   },
   nextButtonText: {
-    color: COLORS.textDark,
+    color: '#1C0B05',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   disabledBtn: {
     opacity: 0.4,
@@ -970,9 +1074,9 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   locationBtnText: {
-    color: COLORS.textDark,
-    fontSize: 14,
-    fontWeight: '800',
+    color: '#1C0B05',
+    fontSize: 15,
+    fontWeight: '900',
   },
   locationSuccessTitle: {
     fontSize: 17,
@@ -989,5 +1093,123 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.textDarkSecondary,
     textAlign: 'center',
+  },
+  shareHeaderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.cardBgIvory,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    marginBottom: 10,
+    ...SHADOWS.sm,
+  },
+  shareHeaderBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: COLORS.textDark,
+    letterSpacing: 0.8,
+  },
+  shareGuideContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  shareStepCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    ...SHADOWS.md,
+  },
+  shareStepNumberCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFBE54',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  shareStepNumberText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C0B05',
+  },
+  shareStepBody: {
+    flex: 1,
+  },
+  shareStepTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  shareStepTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: COLORS.textDark,
+  },
+  shareStepDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLORS.textDarkSecondary,
+  },
+  proTipCard: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    ...SHADOWS.md,
+  },
+  proTipTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textDark,
+  },
+  proTipText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.textDarkSecondary,
+  },
+  boldText: {
+    fontWeight: '800',
+    color: COLORS.textDark,
+  },
+  ruleBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#FFBE54',
+    ...SHADOWS.md,
+  },
+  ruleFlameIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(228, 40, 31, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ruleBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginBottom: 2,
+  },
+  ruleBannerSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: COLORS.textDarkSecondary,
   },
 });

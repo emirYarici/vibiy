@@ -482,7 +482,9 @@ app.get('/api/thumbnail', async (req, res) => {
 
 /**
  * GET /api/matches/candidates
- * Finds top 3 nearby candidates with vibe similarity score >= 50% over videos from yesterday
+ * Finds top nearby candidates using 70/30 Hybrid Vector Matching:
+ *  - 70% Spontaneous Daily Mood (last 3 videos)
+ *  - 30% Rolling Core Persona (last 20 videos)
  * Leverages PostGIS GiST geo-indexing and pgvector cosine distance directly in PostgreSQL
  */
 app.get('/api/matches/candidates', authenticateToken, async (req, res) => {
@@ -516,8 +518,8 @@ app.get('/api/matches/candidates', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/matches/generate-daily-batch
- * Automated batch matching engine for cron jobs / admin trigger
- * Evaluates all user pairs from yesterday and creates top 3 matches (>=50% vibe) per user in public.matches
+ * Automated batch matching engine for daily drops (cron jobs / admin trigger)
+ * Evaluates all user pairs with 70% Mood + 30% Core Persona hybrid scoring (>=50% vibe threshold)
  */
 app.post('/api/matches/generate-daily-batch', async (req, res) => {
   const maxDistance = parseFloat(req.body.maxDistance || 50000); // 50 km default

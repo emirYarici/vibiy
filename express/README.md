@@ -14,6 +14,7 @@ This folder contains the custom Express.js backend API and a standalone Python-b
 ## Setup & Installation
 
 ### 1. Configure Python Virtual Environment
+
 To bypass macOS PEP 668 restrictions and keep your system clean, create a local Python virtual environment inside this folder:
 
 ```bash
@@ -25,6 +26,7 @@ python3 -m venv venv
 ```
 
 ### 2. Configure Node.js Backend
+
 Install the Node.js packages for the Express server:
 
 ```bash
@@ -32,6 +34,7 @@ npm install
 ```
 
 ### 3. Configure Environment Variables
+
 Create a `.env` file in the root of the `express/` directory (a template has already been created for you):
 
 ```env
@@ -41,18 +44,20 @@ SUPABASE_ANON_KEY=your-supabase-anon-key
 GEMINI_API_KEY=your-google-gemini-api-key
 ```
 
-*Note: If `GEMINI_API_KEY` is left blank, generated video embeddings will default to `null` to prevent crashes.*
+_Note: If `GEMINI_API_KEY` is left blank, generated video embeddings will default to `null` to prevent crashes._
 
 ---
 
 ## Running the Backend
 
 ### Start Server
+
 To start the Express server locally:
 
 ```bash
 npm start
 ```
+
 The server will start listening on `http://localhost:3000`.
 
 ---
@@ -62,20 +67,27 @@ The server will start listening on `http://localhost:3000`.
 You can also use the scraper script directly using the virtual environment's Python binary:
 
 ### 1. Query Metadata as JSON
+
 Returns direct CDN media URLs and summaries:
+
 ```bash
 ./venv/bin/python scraper.py "https://www.instagram.com/reel/DPNLrqlDaxV/" --json
 ```
 
 ### 2. Download a Single Reel
+
 Downloads the `.mp4` file directly to a local `downloads/` folder:
+
 ```bash
 ./venv/bin/python scraper.py "https://www.instagram.com/reel/DPNLrqlDaxV/"
 ```
 
 ### 3. Bulk Download Reels from a Text File
+
 Create a text file (e.g., `urls.txt`) containing one Instagram Reel URL per line:
+
 ```bash
 ./venv/bin/python scraper.py urls.txt
 ```
+
 The script will iterate through the list and download all videos sequentially to the `downloads/` folder.

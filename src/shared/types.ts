@@ -107,3 +107,22 @@ export function getMatchArchetype(score: number): MatchArchetype {
     };
   }
 }
+
+export interface VibeReelItem {
+  id: string;
+  url: string;
+  thumbnail_url?: string;
+  username?: string;
+  summary?: string;
+}
+
+export interface VibeComparisonData {
+  userVideos: VibeReelItem[];
+  partnerVideos: VibeReelItem[];
+  similarityScore: number;
+  moodSimilarityPercentage: number;
+  personaSimilarityPercentage: number;
+  commonVibes: string[];
+  aiIcebreakers: string[];
+}
+
