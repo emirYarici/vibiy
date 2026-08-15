@@ -119,7 +119,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
     bottomSheetRef.current?.expand();
   };
 
-  const handleEmailLoginSubmit = async () => {
+  const handleEmailAuthSubmit = async () => {
     if (!emailText.trim() || !passwordText.trim()) {
       Alert.alert('Error', 'Please enter both email and password.');
       return;
@@ -129,13 +129,13 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
       setEmailSigningIn(true);
 
       if (!isSupabaseConfigured) {
-        // Simulate login success in Demo Mode
+        // Simulate login/signup success in Demo Mode
         await new Promise<void>((resolve) => setTimeout(resolve, 800));
         
         onLoginSuccess(
           {
             user: {
-              id: 'demo-email-user',
+              id: 'demo-email-user-' + Date.now(),
               email: emailText.trim(),
               user_metadata: {
                 full_name: emailText.trim().split('@')[0],
@@ -148,18 +148,45 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
         return;
       }
 
-      // Log in via Supabase with email/password
-      const { data, error } = await supabase.auth.signInWithPassword({
+      // 1. Try signing in first
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: emailText.trim(),
         password: passwordText.trim(),
       });
 
-      if (error) throw error;
-      onLoginSuccess(data, false);
+      if (!signInError && signInData.session) {
+        onLoginSuccess(signInData.session, false);
+        bottomSheetRef.current?.close();
+        return;
+      }
+
+      // 2. If invalid credentials or user not found, try signing up automatically
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: emailText.trim(),
+        password: passwordText.trim(),
+      });
+
+      if (signUpError) {
+        throw signInError || signUpError;
+      }
+
+      if (signUpData.session) {
+        onLoginSuccess(signUpData.session, false);
+      } else {
+        // Retry sign in if user was created
+        const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+          email: emailText.trim(),
+          password: passwordText.trim(),
+        });
+
+        if (retryError) throw retryError;
+        onLoginSuccess(retryData.session, false);
+      }
+
       bottomSheetRef.current?.close();
       
     } catch (err: any) {
-      Alert.alert('Sign-In Failed', err.message || 'Incorrect email or password.');
+      Alert.alert('Authentication Failed', err.message || 'Unable to sign in. Please check your credentials.');
     } finally {
       setEmailSigningIn(false);
     }
@@ -201,7 +228,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
         <View style={styles.loginGlassCard}>
           <Text style={styles.loginTitle}>Welcome upfront</Text>
           <Text style={styles.loginDescription}>
-            Sign in securely using your Apple ID to build your Tinder-style profile, upload photos, and connect with matched friends.
+            Sign in securely using Apple ID or email to build your profile, upload photos, and connect with matched friends.
           </Text>
 
           {signingIn ? (
@@ -216,7 +243,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
               />
 
               <TouchableOpacity style={styles.emailLoginBtn} onPress={handleOpenEmailSheet}>
-                <Text style={styles.emailLoginText}>Login with Email</Text>
+                <Text style={styles.emailLoginText}>Sign In with Email</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={styles.demoBypassBtn} onPress={handleDemoBypass}>
@@ -247,9 +274,9 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
         }}
       >
         <BottomSheetView style={styles.sheetContent}>
-          <Text style={styles.sheetTitle}>Test User Login</Text>
+          <Text style={styles.sheetTitle}>Sign In / Register</Text>
           <Text style={styles.sheetDescription}>
-            Enter your test user credentials to sign in.
+            Enter your email & password to sign in or create your account automatically.
           </Text>
 
           <View style={styles.sheetInputGroup}>
@@ -283,8 +310,8 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
           {emailSigningIn ? (
             <ActivityIndicator size="small" color={COLORS.primary} style={{ marginVertical: 12 }} />
           ) : (
-            <TouchableOpacity style={styles.sheetSubmitBtn} onPress={handleEmailLoginSubmit}>
-              <Text style={styles.sheetSubmitBtnText}>Sign In</Text>
+            <TouchableOpacity style={styles.sheetSubmitBtn} onPress={handleEmailAuthSubmit}>
+              <Text style={styles.sheetSubmitBtnText}>Continue</Text>
             </TouchableOpacity>
           )}
         </BottomSheetView>
@@ -346,14 +373,14 @@ const styles = StyleSheet.create({
   authButtonsContainer: {
     width: '100%',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
   },
   appleBtn: {
     width: '100%',
     height: 52,
     borderRadius: RADIUS.pill,
   },
-  demoBypassBtn: {
+  emailLoginBtn: {
     height: 52,
     width: '100%',
     alignItems: 'center',
@@ -362,24 +389,22 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.accent,
     ...SHADOWS.floating,
   },
-  demoBypassText: {
-    color: COLORS.textDark,
-    fontSize: 14,
+  emailLoginText: {
+    color: COLORS.accentText,
+    fontSize: 15,
     fontWeight: '800',
   },
-  emailLoginBtn: {
-    height: 52,
+  demoBypassBtn: {
+    height: 44,
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1.5,
-    borderColor: 'rgba(94, 88, 115, 0.15)',
+    backgroundColor: 'transparent',
   },
-  emailLoginText: {
-    color: COLORS.textDark,
-    fontSize: 14,
+  demoBypassText: {
+    color: COLORS.textDarkSecondary,
+    fontSize: 13,
     fontWeight: '700',
   },
   footerNote: {

@@ -20,6 +20,9 @@ import DailyDropCountdown from '../components/DailyDropCountdown';
 import DailyMatchCard from '../components/DailyMatchCard';
 import CompareVibesSheet from '../components/CompareVibesSheet';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { useQueryClient } from '@tanstack/react-query';
+import { useMatches, MATCHES_QUERY_KEYS, MatchesData } from '../shared/queries/useMatches';
+
 import {
   DEMO_PROFILES,
   DEMO_MATCHES,
@@ -50,13 +53,17 @@ export const parseReferredMessage = (content: string) => {
 };
 
 export default function MatchesPage({ session, isDemoMode, navigation }: MatchesPageProps) {
-  const [loading, setLoading] = useState(true);
-  const [matches, setMatches] = useState<MatchRecord[]>([]);
-  const [profiles, setProfiles] = useState<Record<string, DBProfile>>({});
-  const [messages, setMessages] = useState<MessageRecord[]>([]);
-  const [compareTarget, setCompareTarget] = useState<{ profile: DBProfile; score: number } | null>(null);
-
+  const queryClient = useQueryClient();
   const currentUserId = session?.user?.id || 'demo-guest-user';
+
+  const { data, isLoading } = useMatches(currentUserId, isDemoMode);
+
+  const matches = data?.matches || [];
+  const profiles = data?.profiles || {};
+  const messages = data?.messages || [];
+  const loading = isLoading;
+
+  const [compareTarget, setCompareTarget] = useState<{ profile: DBProfile; score: number } | null>(null);
 
   const handleStartChat = (profile: DBProfile) => {
     const match = matches.find(
@@ -98,100 +105,8 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
     }
   };
 
-  // Load Matches, Profiles, and Message log (to show snippet of last message)
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      if (isDemoMode || !isSupabaseConfigured) {
-        const localMatches = await AsyncStorage.getItem('@demo_matches');
-        const localMessages = await AsyncStorage.getItem('@demo_messages');
-
-        if (localMatches) {
-          setMatches(JSON.parse(localMatches));
-        } else {
-          setMatches(DEMO_MATCHES);
-          await AsyncStorage.setItem('@demo_matches', JSON.stringify(DEMO_MATCHES));
-        }
-
-        if (localMessages) {
-          setMessages(JSON.parse(localMessages));
-        } else {
-          setMessages(DEFAULT_DEMO_MESSAGES);
-          await AsyncStorage.setItem('@demo_messages', JSON.stringify(DEFAULT_DEMO_MESSAGES));
-        }
-
-        const profileMap: Record<string, DBProfile> = {};
-        DEMO_PROFILES.forEach((p) => {
-          profileMap[p.id] = p;
-        });
-        setProfiles(profileMap);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch Real active matches
-      const { data: dbMatches, error: matchesError } = await supabase
-        .from('matches')
-        .select('*')
-        .or(`user_a.eq.${currentUserId},user_b.eq.${currentUserId}`)
-        .eq('status', 'active');
-
-      if (matchesError) throw matchesError;
-
-      if (!dbMatches || dbMatches.length === 0) {
-        setMatches([]);
-        setLoading(false);
-        return;
-      }
-
-      setMatches(dbMatches);
-
-      // Extract unique matched user IDs
-      const matchedIds = dbMatches.map((m) =>
-        m.user_a === currentUserId ? m.user_b : m.user_a
-      );
-
-      // Fetch Profiles of matched users
-      const { data: dbProfiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name, age, bio, photos')
-        .in('id', matchedIds);
-
-      if (profilesError) throw profilesError;
-
-      const profileMap: Record<string, DBProfile> = {};
-      dbProfiles?.forEach((p: any) => {
-        profileMap[p.id] = {
-          id: p.id,
-          full_name: p.full_name || 'Anonymous',
-          age: p.age || 18,
-          bio: p.bio || '',
-          photos: p.photos || [],
-        };
-      });
-      setProfiles(profileMap);
-
-      // Fetch Messages for these matches to show last message snippets
-      const matchIds = dbMatches.map((m) => m.id);
-      const { data: dbMessages, error: messagesError } = await supabase
-        .from('messages')
-        .select('*')
-        .in('match_id', matchIds)
-        .order('created_at', { ascending: true });
-
-      if (messagesError) throw messagesError;
-      setMessages(dbMessages || []);
-
-    } catch (err: any) {
-      console.error('Error fetching matches/messages:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentUserId, isDemoMode]);
-
+  // Scoped Supabase Realtime Listener for matches updates
   useEffect(() => {
-    fetchData();
-
     if (!isDemoMode && isSupabaseConfigured) {
       const channel = supabase
         .channel('matches_list_updates')
@@ -200,30 +115,27 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
           { event: 'INSERT', schema: 'public', table: 'messages' },
           (payload) => {
             const newMsg = payload.new as MessageRecord;
-            setMessages((prev) => {
-              const filtered = prev.filter((m) => m.id !== newMsg.id);
-              return [...filtered, newMsg];
-            });
+            queryClient.setQueryData<MatchesData>(
+              MATCHES_QUERY_KEYS.all(currentUserId),
+              (old) => {
+                if (!old) return old;
+                const filtered = old.messages.filter((m) => m.id !== newMsg.id);
+                return {
+                  ...old,
+                  messages: [...filtered, newMsg],
+                };
+              }
+            );
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'matches' },
           (payload) => {
-            if (payload.eventType === 'UPDATE') {
-              const updatedMatch = payload.new as MatchRecord;
-              if (updatedMatch.status !== 'active') {
-                setMatches((prev) => prev.filter((m) => m.id !== updatedMatch.id));
-              }
-            } else if (payload.eventType === 'INSERT') {
-              const newMatch = payload.new as MatchRecord;
-              if (newMatch.user_a === currentUserId || newMatch.user_b === currentUserId) {
-                setMatches((prev) => {
-                  if (prev.some((m) => m.id === newMatch.id)) return prev;
-                  return [...prev, newMatch];
-                });
-              }
-            }
+            // Invalidate to fetch profiles of new matches as well
+            queryClient.invalidateQueries({
+              queryKey: MATCHES_QUERY_KEYS.all(currentUserId),
+            });
           }
         )
         .subscribe();
@@ -232,7 +144,7 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
         supabase.removeChannel(channel);
       };
     }
-  }, [fetchData, isDemoMode]);
+  }, [currentUserId, isDemoMode, queryClient]);
 
   // Helper to check if match was created today
   const isMatchToday = (dateString?: string) => {
@@ -551,7 +463,7 @@ const styles = StyleSheet.create({
   sectionHeaderTitle: {
     fontSize: 12,
     fontWeight: '900',
-    color: '#FFBE54',
+    color: COLORS.accent,
     letterSpacing: 0.8,
   },
   cardCountBadge: {
@@ -563,7 +475,7 @@ const styles = StyleSheet.create({
   cardCountText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FFBE54',
+    color: COLORS.accent,
   },
   dailyDropsScroll: {
     paddingHorizontal: 20,

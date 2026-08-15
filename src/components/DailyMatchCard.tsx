@@ -74,7 +74,7 @@ export default function DailyMatchCard({
               activeOpacity={0.8}
               onPress={() => onCompareVibes(profile, score)}
             >
-              <Film size={12} color="#FFBE54" />
+              <Film size={12} color={COLORS.accent} />
               <Text style={styles.comparePillText}>Compare Vibes</Text>
             </TouchableOpacity>
 
@@ -83,7 +83,7 @@ export default function DailyMatchCard({
               activeOpacity={0.8}
               onPress={() => onStartChat(profile)}
             >
-              <MessageCircle size={12} color="#331005" strokeWidth={2.5} />
+              <MessageCircle size={12} color={COLORS.primaryText} strokeWidth={2.5} />
               <Text style={styles.chatPillText}>Chat</Text>
             </TouchableOpacity>
           </View>
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   nameText: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: COLORS.white,
     marginBottom: 2,
   },
   ageText: {
@@ -186,14 +186,14 @@ const styles = StyleSheet.create({
   comparePillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFBE54',
+    color: COLORS.accent,
   },
   chatPillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: RADIUS.pill,
@@ -201,6 +201,6 @@ const styles = StyleSheet.create({
   chatPillText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#331005',
+    color: COLORS.primaryText,
   },
 });

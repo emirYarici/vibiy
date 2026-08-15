@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-13T11:15:38Z",
+  "title": "Design System: Vibiy",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Rojo Red",
+        "canonical": "#E4281F",
+        "tonalRamp": [
+          "#6A0F0B",
+          "#991410",
+          "#C21F18",
+          "#E4281F",
+          "#EB554E",
+          "#F1837F",
+          "#F7B3B0",
+          "#FDE4E3"
+        ]
+      },
+      "button-bg": {
+        "role": "secondary",
+        "displayName": "Xanthous Gold",
+        "canonical": "#FFBE54",
+        "tonalRamp": [
+          "#805713",
+          "#AB7722",
+          "#D69733",
+          "#FFBE54",
+          "#FFCB76",
+          "#FFD799",
+          "#FFE4BB",
+          "#FFF2DD"
+        ]
+      },
+      "card-bg": {
+        "role": "neutral",
+        "displayName": "Dutch White",
+        "canonical": "#FCEEC9",
+        "tonalRamp": [
+          "#7D6D45",
+          "#A89462",
+          "#D3BB82",
+          "#FCEEC9",
+          "#FDF1D4",
+          "#FDF5E0",
+          "#FEF9EC",
+          "#FFFDFA"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display Text",
+        "purpose": "App logo and major headings only."
+      },
+      "headline": {
+        "displayName": "Headline Text",
+        "purpose": "Match names, section titles."
+      },
+      "body": {
+        "displayName": "Body Text",
+        "purpose": "User bios, message bubbles."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sm",
+        "value": "0 2px 6px rgba(0,0,0,0.1)",
+        "purpose": "Badges and small components."
+      },
+      {
+        "name": "md",
+        "value": "0 6px 16px rgba(0,0,0,0.14)",
+        "purpose": "Daily match cards."
+      },
+      {
+        "name": "floating",
+        "value": "0 8px 18px rgba(255,190,84,0.35)",
+        "purpose": "Main active/interactive buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "reanimated-spring",
+        "value": "Spring configuration",
+        "purpose": "Card flips and smooth layout animations."
+      }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary action button used for starting chat or submitting fields.",
+      "html": "<button class=\"ds-btn-primary\">Chat</button>",
+      "css": ".ds-btn-primary { background-color: #FFBE54; color: #331005; border-radius: 9999px; padding: 7px 12px; font-weight: 800; border: none; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; text-transform: uppercase; cursor: pointer; transition: background-color 0.2s; } .ds-btn-primary:hover { background-color: #E6AA45; }"
+    },
+    {
+      "name": "Daily Match Card",
+      "kind": "card",
+      "refersTo": "card-container",
+      "description": "Tactile profile card featuring image preview, archetype badge, and action pills.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-badge\">75% Twin Flame</div><div class=\"ds-footer\"><div class=\"ds-title\">Sarah, 24</div><div class=\"ds-desc\">Humor, aesthetics and music reels.</div></div></div>",
+      "css": ".ds-card { width: 220px; height: 300px; border-radius: 22px; position: relative; background: #FCEEC9; background-image: url('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'); background-size: cover; overflow: hidden; box-shadow: 0 6px 16px rgba(0,0,0,0.14); } .ds-badge { position: absolute; top: 12px; left: 12px; background-color: #FFBE54; color: #331005; border-radius: 9999px; font-size: 10px; font-weight: 800; padding: 5px 10px; } .ds-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 12px; background-color: rgba(28, 11, 5, 0.88); border-top-left-radius: 18px; border-top-right-radius: 18px; color: #FFF; } .ds-title { font-size: 16px; font-weight: 800; } .ds-desc { font-size: 11px; color: rgba(255,255,255,0.7); line-height: 15px; margin-top: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Velvet Cinema Club",
+    "overview": "A warm, immersive, screen-focused visual world. High contrast between rich espresso tones, deep crimson backdrops (Rojo), and golden yellow highlights (Xanthous) creates an intimate, theatrical feel. Smooth overlay gradients and frosted glass panels anchor video cards, letting short-form content take center stage.",
+    "keyCharacteristics": [
+      "Immersive dark cinema vibes with rich warm colors.",
+      "Tactile physical-like components (frosted glass overlays, high border radii).",
+      "High contrast for readability on cards and image thumbnails."
+    ],
+    "rules": [
+      {
+        "name": "The Theme-Invariant Semantic Rule",
+        "body": "All styling must consume colors from src/shared/theme.ts via the active THEME_CONFIG. Hardcoded hex values are strictly forbidden in page files.",
+        "section": "colors"
+      },
+      {
+        "name": "The Safe Area Rule",
+        "body": "All main screens must wrap layouts in SafeAreaView from react-native-safe-area-context to avoid rendering under iOS notches and home indicators.",
+        "section": "layout"
+      },
+      {
+        "name": "The Tactile Layering Rule",
+        "body": "Cards use depth-layered semi-transparent dark overlays (rgba(28, 11, 5, 0.88)) to maintain maximum readability on dynamic image backgrounds.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Smooth Corner Rule",
+        "body": "Cards use a corner radius of 28px (RADIUS.card), while smaller interactive components (pills, badges, buttons) use pill shapes (radius 9999px) for friendly tactile interaction.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do wrap every root-level page in SafeAreaView to prevent notches from clipping navigation.",
+      "Do use getMatchArchetype logic to color match badges dynamically based on similarity score.",
+      "Do ensure interactive elements have a minimum touch target size of 44x44 pt."
+    ],
+    "donts": [
+      "Don't use hardcoded hex values in UI source files. Import all colors from COLORS in src/shared/theme.ts.",
+      "Don't disable or intercept the default iOS left-edge swipe back gesture.",
+      "Don't use generic loading spinners; use SkeletonImage.tsx shimmer effects for remote thumbnails."
+    ]
+  }
+}

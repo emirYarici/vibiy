@@ -115,6 +115,15 @@ export function useShareHistoryQuery(userId?: string, isDemoMode = false) {
   };
 }
 
+export function usePartnerShareHistory(partnerId?: string, isDemoMode = false) {
+  return useQuery({
+    queryKey: SHARE_QUERY_KEYS.user(partnerId),
+    queryFn: () => fetchUserShareHistory(partnerId, isDemoMode),
+    enabled: !!partnerId,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
 export function useProcessVideoMutation(session?: any) {
   const queryClient = useQueryClient();
 

@@ -25,6 +25,7 @@ import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/ap
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { MainAppProps } from '../shared/types';
 import SkeletonImage from '../components/SkeletonImage';
+import { useProfile, useUpdateProfile } from '../shared/queries/useProfile';
 
 export default function ProfilePage({ session, onLogout, isDemoMode = false }: MainAppProps) {
   const [activeTab, setActiveTab] = useState<'preview' | 'edit'>('preview');
@@ -58,76 +59,41 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
     []
   );
 
-  // Load cached profile data on mount
+  const userId = session?.user?.id || (isDemoMode ? 'demo-guest-user' : '');
+  const { data: profile } = useProfile(userId, isDemoMode);
+  const updateProfileMutation = useUpdateProfile();
+
+  // Load coordinates from cache on mount
   useEffect(() => {
-    const loadProfileData = async () => {
-      try {
-        const cachedName = await AsyncStorage.getItem('@profile_name');
-        const cachedBio = await AsyncStorage.getItem('@profile_bio');
-        const cachedAge = await AsyncStorage.getItem('@profile_age');
-        const cachedOccupation = await AsyncStorage.getItem('@profile_occupation');
-        const cachedGender = await AsyncStorage.getItem('@profile_gender');
-        const cachedPreference = await AsyncStorage.getItem('@profile_preference');
-        const cachedLat = await AsyncStorage.getItem('@profile_latitude');
-        const cachedLng = await AsyncStorage.getItem('@profile_longitude');
-        const cachedPhotos = await AsyncStorage.getItem('@profile_photos');
-
-        if (cachedName) setUserName(cachedName);
-        if (cachedBio) setUserBio(cachedBio);
-        if (cachedAge) setUserAge(cachedAge);
-        if (cachedOccupation) setUserOccupation(cachedOccupation);
-        if (cachedGender) setUserGender(cachedGender as any);
-        if (cachedPreference) setUserPreference(cachedPreference as any);
-        if (cachedLat) setLatitude(Number(cachedLat));
-        if (cachedLng) setLongitude(Number(cachedLng));
-
-        if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
-          // Sync live PostGIS location data
-          const { data } = await supabase
-            .from('profiles')
-            .select('location, full_name, bio, age, gender, preference, photos')
-            .eq('id', session.user.id)
-            .single();
-
-          if (data) {
-            if (data.full_name) setUserName(data.full_name);
-            if (data.bio) setUserBio(data.bio);
-            if (data.age) setUserAge(String(data.age));
-            if (data.gender) setUserGender(data.gender);
-            if (data.preference) setUserPreference(data.preference);
-            if (data.photos && data.photos.length > 0) {
-              const padded = [...data.photos];
-              while (padded.length < 6) padded.push(null);
-              setProfilePhotos(padded);
-            }
-            if (data.location && typeof data.location === 'object' && data.location.coordinates) {
-              const lng = data.location.coordinates[0];
-              const lat = data.location.coordinates[1];
-              setLatitude(lat);
-              setLongitude(lng);
-            }
-          }
-        } else if (cachedPhotos) {
-          setProfilePhotos(JSON.parse(cachedPhotos));
-        } else {
-          // Default placeholder setup
-          const defaultPhotos = [
-            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600',
-            null,
-            null,
-            null,
-            null,
-            null,
-          ];
-          setProfilePhotos(defaultPhotos);
-        }
-      } catch (err) {
-        console.error('Failed to load profile details:', err);
-      }
+    const loadLocation = async () => {
+      const cachedLat = await AsyncStorage.getItem('@profile_latitude');
+      const cachedLng = await AsyncStorage.getItem('@profile_longitude');
+      if (cachedLat) setLatitude(Number(cachedLat));
+      if (cachedLng) setLongitude(Number(cachedLng));
     };
+    loadLocation();
+  }, []);
 
-    loadProfileData();
-  }, [session, isDemoMode]);
+  // Sync profile data to local inputs when query returns
+  useEffect(() => {
+    if (profile) {
+      if (profile.full_name) setUserName(profile.full_name);
+      if (profile.bio) setUserBio(profile.bio);
+      if (profile.age) setUserAge(String(profile.age));
+      if (profile.occupation) setUserOccupation(profile.occupation);
+      if (profile.gender) setUserGender(profile.gender as any);
+      if (profile.preference) setUserPreference(profile.preference as any);
+      if (profile.photos && profile.photos.length > 0) {
+        const padded: (string | null)[] = [...profile.photos];
+        while (padded.length < 6) padded.push(null);
+        setProfilePhotos(padded);
+      }
+      if (profile.location && typeof profile.location === 'object' && profile.location.coordinates) {
+        setLatitude(profile.location.coordinates[1]);
+        setLongitude(profile.location.coordinates[0]);
+      }
+    }
+  }, [profile]);
 
   const saveProfileData = async (
     name: string,
@@ -140,41 +106,18 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
     lngVal: number | null,
     photosList: (string | null)[]
   ) => {
-    try {
-      await AsyncStorage.setItem('@profile_name', name);
-      await AsyncStorage.setItem('@profile_bio', bio);
-      await AsyncStorage.setItem('@profile_age', age);
-      await AsyncStorage.setItem('@profile_occupation', occupationVal);
-      await AsyncStorage.setItem('@profile_gender', genderVal || '');
-      await AsyncStorage.setItem('@profile_preference', preferenceVal || '');
-      await AsyncStorage.setItem('@profile_latitude', latVal ? String(latVal) : '');
-      await AsyncStorage.setItem('@profile_longitude', lngVal ? String(lngVal) : '');
-      await AsyncStorage.setItem('@profile_photos', JSON.stringify(photosList));
-
-      if (session?.user?.id && !isDemoMode && isSupabaseConfigured) {
-        const parsedAge = parseInt(age.trim(), 10);
-        const filteredPhotos = photosList.filter((p): p is string => p !== null);
-        const { error } = await supabase
-          .from('profiles')
-          .update({
-            full_name: name.trim(),
-            bio: bio.trim(),
-            age: isNaN(parsedAge) ? null : parsedAge,
-            gender: genderVal,
-            preference: preferenceVal,
-            location: latVal && lngVal ? `POINT(${lngVal} ${latVal})` : null,
-            photos: filteredPhotos,
-          })
-          .eq('id', session.user.id);
-
-        if (error) {
-          console.error('Failed to update profiles table:', error.message);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to save profile cache:', err);
-      throw err;
-    }
+    await updateProfileMutation.mutateAsync({
+      userId,
+      name,
+      bio,
+      age,
+      occupation: occupationVal,
+      gender: genderVal,
+      preference: preferenceVal,
+      photos: photosList,
+      latitude: latVal,
+      longitude: lngVal,
+    });
   };
 
   const handleSaveProfile = async () => {
@@ -259,9 +202,9 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
   };
 
   const activePhotos = profilePhotos.filter((p): p is string => p !== null);
-  const displayName = userName.trim() || 'Pete';
+  const displayName = userName.trim() || profile?.full_name || 'Anonymous';
   const displayHandle = `@${displayName.toLowerCase().replace(/\s+/g, '')}`;
-  const displayBio = userBio.trim() || 'Marketing director, amateur photographer, traveller, family guy';
+  const displayBio = userBio.trim() || profile?.bio || 'No bio provided yet.';
 
   return (
     <BottomSheetModalProvider>
@@ -350,35 +293,6 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
                 <Text style={styles.editorialLabel}>INTRO</Text>
                 <Text style={styles.editorialIntroText}>{displayBio}</Text>
               </View>
-
-              {/* OCCUPATION */}
-              <View style={styles.editorialSection}>
-                <Text style={styles.editorialLabel}>OCCUPATION</Text>
-                <View style={styles.editorialPill}>
-                  <Text style={styles.editorialPillText}>{userOccupation}</Text>
-                </View>
-              </View>
-
-              {/* WORLDS & VIBES Columns */}
-              <View style={styles.editorialGridRow}>
-                <View style={styles.editorialColumn}>
-                  <Text style={styles.editorialLabel}>WORLDS</Text>
-                  {worldsList.map((w, i) => (
-                    <Text key={i} style={styles.editorialItemText}>
-                      {w}
-                    </Text>
-                  ))}
-                </View>
-
-                <View style={styles.editorialColumn}>
-                  <Text style={styles.editorialLabel}>VIBES</Text>
-                  {vibesList.map((v, i) => (
-                    <Text key={i} style={styles.editorialItemText}>
-                      {v}
-                    </Text>
-                  ))}
-                </View>
-              </View>
             </View>
           </View>
         ) : (
@@ -402,7 +316,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
                       style={styles.changeBtn}
                       onPress={() => handlePhotoSelect(0)}
                     >
-                      <Camera size={14} color="#FFFFFF" />
+                      <Camera size={14} color={COLORS.white} />
                       <Text style={styles.changeBtnText}>Change</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -486,29 +400,17 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
                 />
               </View>
 
-              {/* Age & Occupation Row */}
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>Age</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="25"
-                    placeholderTextColor={COLORS.textDarkSecondary}
-                    keyboardType="numeric"
-                    value={userAge}
-                    onChangeText={setUserAge}
-                  />
-                </View>
-                <View style={[styles.inputGroup, { flex: 2 }]}>
-                  <Text style={styles.inputLabel}>Occupation</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. Marketing Director"
-                    placeholderTextColor={COLORS.textDarkSecondary}
-                    value={userOccupation}
-                    onChangeText={setUserOccupation}
-                  />
-                </View>
+              {/* Age */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Age</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="25"
+                  placeholderTextColor={COLORS.textDarkSecondary}
+                  keyboardType="numeric"
+                  value={userAge}
+                  onChangeText={setUserAge}
+                />
               </View>
 
               {/* Bio / Intro */}
@@ -577,10 +479,10 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
                 activeOpacity={0.85}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={COLORS.white} />
                 ) : (
                   <>
-                    <Check size={18} color="#FFFFFF" strokeWidth={2.5} />
+                    <Check size={18} color={COLORS.white} strokeWidth={2.5} />
                     <Text style={styles.saveBtnText}>Save Profile</Text>
                   </>
                 )}
@@ -607,7 +509,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
         <BottomSheetView style={styles.savedSheetContent}>
           {/* Animated/Glow Icon Circle */}
           <View style={styles.savedIconCircle}>
-            <Check size={32} color="#FFFFFF" strokeWidth={3} />
+            <Check size={32} color={COLORS.white} strokeWidth={3} />
           </View>
 
           {/* Heading */}
@@ -747,7 +649,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   previewPipActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
   },
   editorialDetailsCard: {
     backgroundColor: COLORS.cardBgIvory,
@@ -869,7 +771,7 @@ const styles = StyleSheet.create({
   coverBadgeText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: COLORS.white,
     letterSpacing: 0.5,
   },
   coverBtnsRow: {
@@ -890,7 +792,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.pill,
   },
   changeBtnText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -903,7 +805,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteBtnText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1027,19 +929,17 @@ const styles = StyleSheet.create({
   },
   pillContainer: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     marginTop: 4,
-    flexWrap: 'wrap',
   },
   pillButton: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADIUS.pill,
     paddingVertical: 12,
-    paddingHorizontal: 18,
+    paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
-    minWidth: 90,
     borderWidth: 1,
     borderColor: 'rgba(94, 88, 115, 0.12)',
   },
@@ -1051,6 +951,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.textDarkSecondary,
+    textAlign: 'center',
   },
   pillTextActive: {
     color: COLORS.textDark,
@@ -1061,14 +962,14 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.cardBgIvory,
     borderWidth: 1.5,
-    borderColor: '#EF4444',
+    borderColor: COLORS.danger,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
     ...SHADOWS.sm,
   },
   logoutBtnText: {
-    color: '#EF4444',
+    color: COLORS.danger,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -1084,7 +985,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.sm,
   },
   saveBtnText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 15,
     fontWeight: '800',
   },
@@ -1108,7 +1009,7 @@ const styles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: '#10B981',
+    backgroundColor: COLORS.success,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,

@@ -31,6 +31,7 @@ import TabBar from '../components/TabBar';
 import ProfileOnboarding from '../pages/ProfileOnboarding';
 import ProfileDetailsPage from '../pages/ProfileDetailsPage';
 import ChatPage from '../pages/ChatPage';
+import { useProfile } from '../shared/queries/useProfile';
 
 const Stack = createNativeStackNavigator();
 export const navigationRef = createNavigationContainerRef<any>();
@@ -315,24 +316,13 @@ export default function AppContainer() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const guestFlag = await AsyncStorage.getItem('@guest_session');
-        if (guestFlag === 'true') {
-          setIsDemoMode(true);
-          setSession({
-            user: {
-              id: 'demo-guest-user',
-              email: 'guest@vibiy.com',
-              user_metadata: { full_name: 'Guest User' },
-            },
-          });
-          setLoading(false);
-          return;
-        }
-
-        const { data: { session: supabaseSession } } = await supabase.auth.getSession();
-        setSession(supabaseSession);
+        console.log('🔍 [AUTH] Clearing session for testing...');
+        await supabase.auth.signOut();
+        await AsyncStorage.removeItem('@guest_session');
+        console.log('🔍 [AUTH] Session cleared successfully!');
+        setSession(null);
       } catch (err) {
-        console.error('Failed to initialize session:', err);
+        console.error('❌ [AUTH] Failed to clear session:', err);
       } finally {
         setLoading(false);
       }
@@ -342,6 +332,7 @@ export default function AppContainer() {
 
     // Listen for Supabase auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      console.log(`🔔 [AUTH] onAuthStateChange event: ${_event}`, newSession ? `User ID: ${newSession.user.id}` : 'null');
       if (!isDemoMode) {
         setSession(newSession);
       }
@@ -352,54 +343,48 @@ export default function AppContainer() {
     };
   }, [isDemoMode]);
 
-  // Check profile completeness when session changes
+  const profileUserId = session?.user?.id || '';
+  const { data: profile, isLoading: isProfileLoading } = useProfile(profileUserId, isDemoMode);
+
+  // Check profile completeness when profile data updates
   useEffect(() => {
-    const checkProfileStatus = async () => {
-      if (!session) {
-        setIsProfileComplete(null);
-        return;
-      }
+    console.log('⚙️ [PROFILE CHECK] Evaluating completeness...', {
+      hasSession: !!session,
+      userId: session?.user?.id,
+      isProfileLoading,
+      profile,
+    });
 
-      try {
-        if (isDemoMode) {
-          const cachedName = await AsyncStorage.getItem('@profile_name');
-          const cachedPhotos = await AsyncStorage.getItem('@profile_photos');
-          const cachedGender = await AsyncStorage.getItem('@profile_gender');
-          const cachedPreference = await AsyncStorage.getItem('@profile_preference');
-          const photoArray = cachedPhotos ? JSON.parse(cachedPhotos) : [];
-          
-          const complete = !!(cachedName && photoArray[0] && cachedGender && cachedPreference);
-          setIsProfileComplete(complete);
-        } else if (isSupabaseConfigured) {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('full_name, photos, gender, preference')
-            .eq('id', session.user.id)
-            .single();
+    if (!session) {
+      console.log('⚙️ [PROFILE CHECK] No session -> setting isProfileComplete = null');
+      setIsProfileComplete(null);
+      return;
+    }
 
-          if (error && error.code === 'PGRST116') {
-            // No profile row exists
-            setIsProfileComplete(false);
-          } else if (data) {
-            const hasName = !!data.full_name;
-            const hasPhoto = !!(data.photos && data.photos.length > 0 && data.photos[0]);
-            const hasGender = !!data.gender;
-            const hasPreference = !!data.preference;
-            setIsProfileComplete(hasName && hasPhoto && hasGender && hasPreference);
-          } else {
-            setIsProfileComplete(false);
-          }
-        } else {
-          setIsProfileComplete(true);
-        }
-      } catch (err) {
-        console.error('Failed to check profile status:', err);
-        setIsProfileComplete(true);
-      }
-    };
+    if (isProfileLoading) {
+      console.log('⚙️ [PROFILE CHECK] Profile still loading...');
+      return;
+    }
 
-    checkProfileStatus();
-  }, [session, isDemoMode]);
+    if (profile) {
+      const hasName = !!profile.full_name;
+      const hasPhoto = !!(profile.photos && profile.photos.length > 0 && profile.photos[0]);
+      const hasGender = !!profile.gender;
+      const hasPreference = !!profile.preference;
+      const complete = hasName && hasPhoto && hasGender && hasPreference;
+      console.log('⚙️ [PROFILE CHECK] Calculated completeness:', {
+        hasName,
+        hasPhoto,
+        hasGender,
+        hasPreference,
+        isProfileComplete: complete,
+      });
+      setIsProfileComplete(complete);
+    } else {
+      console.log('⚙️ [PROFILE CHECK] Profile object is null -> setting isProfileComplete = false');
+      setIsProfileComplete(false);
+    }
+  }, [session, profile, isProfileLoading]);
 
   // Auto-fetch/update location on app mount
   useEffect(() => {
@@ -478,6 +463,7 @@ export default function AppContainer() {
   }, []);
 
   const handleLoginSuccess = async (userSession: any, isDemo: boolean = false) => {
+    console.log('🚀 [AUTH SUCCESS] Logged in successfully!', { isDemo, userId: userSession?.user?.id });
     if (isDemo) {
       await AsyncStorage.setItem('@guest_session', 'true');
       setIsDemoMode(true);
@@ -487,6 +473,7 @@ export default function AppContainer() {
 
   const handleLogout = async () => {
     try {
+      console.log('🚪 [LOGOUT] Logging out user...');
       setLoading(true);
       await AsyncStorage.removeItem('@guest_session');
       setIsDemoMode(false);
@@ -523,7 +510,14 @@ export default function AppContainer() {
     }
   }, [loading]);
 
-  if (loading) {
+  console.log('🎨 [RENDER DECISION]', {
+    loading,
+    sessionUserId: session?.user?.id || 'null',
+    isProfileComplete,
+  });
+
+  if (loading || (session && isProfileComplete === null)) {
+    console.log('👉 [RENDER] Showing Loading Screen');
     return (
       <View style={styles.loadingContainer}>
         <Animated.View style={{ opacity: pulseAnim, transform: [{ scale: pulseAnim }] }}>
@@ -535,19 +529,24 @@ export default function AppContainer() {
   }
 
   if (!session) {
+    console.log('👉 [RENDER] Rendering LoginPage (No Session)');
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
   }
 
   // Show onboarding wizard if profile is incomplete
   if (isProfileComplete === false) {
+    console.log('👉 [RENDER] Rendering ProfileOnboarding (Incomplete Profile)');
     return (
       <ProfileOnboarding
         session={session}
         isDemoMode={isDemoMode}
         onOnboardingComplete={() => setIsProfileComplete(true)}
+        onLogout={handleLogout}
       />
     );
   }
+
+  console.log('👉 [RENDER] Rendering Main App Dashboard');
 
   const renderContent = (navigation: any) => {
     switch (activeTab) {
@@ -678,7 +677,7 @@ const styles = StyleSheet.create({
   brandHelpText: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   screenBody: {
     flex: 1,

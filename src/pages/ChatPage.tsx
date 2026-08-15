@@ -30,6 +30,10 @@ import {
   DEMO_PARTNER_HISTORY,
 } from '../shared/mockData';
 import { parseReferredMessage } from './MatchesPage'; // Re-use helper since it parses message reels cleanly
+import { useQueryClient } from '@tanstack/react-query';
+import { useMatches, useUnmatch } from '../shared/queries/useMatches';
+import { useChatMessages, useSendMessage, CHAT_QUERY_KEYS } from '../shared/queries/useChatMessages';
+import { usePartnerShareHistory } from '../shared/queries/useShareHistory';
 
 interface ChatPageProps {
   route: any;
@@ -84,157 +88,31 @@ const InstagramThumbnail = ({
 
 export default function ChatPage({ route, navigation }: ChatPageProps) {
   const { matchId, session, isDemoMode, initialMessage } = route.params || {};
+  const queryClient = useQueryClient();
+  const currentUserId = session?.user?.id || 'demo-guest-user';
 
-  const [loading, setLoading] = useState(true);
-  const [match, setMatch] = useState<MatchRecord | null>(null);
-  const [partnerProfile, setPartnerProfile] = useState<DBProfile | null>(null);
-  const [messages, setMessages] = useState<MessageRecord[]>([]);
+  // Load matches, active chat messages, sending and unmatching mutations
+  const { data: matchesData } = useMatches(currentUserId, isDemoMode);
+  const { data: messages = [], isLoading: messagesLoading } = useChatMessages(matchId, isDemoMode);
+  
+  const match = matchesData?.matches.find((m) => m.id === matchId) || null;
+  const partnerId = match ? (match.user_a === currentUserId ? match.user_b : match.user_a) : '';
+  const partnerProfile = match ? (matchesData?.profiles[partnerId] || null) : null;
+
+  const { data: partnerHistory = [] } = usePartnerShareHistory(partnerId, isDemoMode);
+
+  const sendMessageMutation = useSendMessage();
+  const unmatchMutation = useUnmatch();
+
   const [typedMessage, setTypedMessage] = useState(initialMessage || '');
   const [showCompareSheet, setShowCompareSheet] = useState(false);
 
-  // Liked/Shared Reels History
-  const [partnerHistory, setPartnerHistory] = useState<ShareHistoryItem[]>([]);
+  // Collapsible Share Reels accordions
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
   const [referredReel, setReferredReel] = useState<ShareHistoryItem | null>(null);
 
   const chatScrollViewRef = useRef<ScrollView>(null);
-  const currentUserId = session?.user?.id || 'demo-guest-user';
-
-
-  // Load chat profile details, message stream, and partner shared reels
-  const fetchChatDetails = useCallback(async () => {
-    try {
-      setLoading(true);
-
-      if (isDemoMode || !isSupabaseConfigured) {
-        // --- DEMO MODE MOCKS ---
-        const localMatchesStr = await AsyncStorage.getItem('@demo_matches');
-        const localMatches: MatchRecord[] = localMatchesStr ? JSON.parse(localMatchesStr) : [];
-        const activeMatch = localMatches.find((m) => m.id === matchId) || null;
-        setMatch(activeMatch);
-
-        if (activeMatch) {
-          const partnerId = activeMatch.user_a === currentUserId ? activeMatch.user_b : activeMatch.user_a;
-          const pProfile = DEMO_PROFILES.find((p) => p.id === partnerId) || null;
-          setPartnerProfile(pProfile);
-
-          // Fetch local demo messages
-          const localMessagesStr = await AsyncStorage.getItem('@demo_messages');
-          const allMessages: MessageRecord[] = localMessagesStr
-            ? JSON.parse(localMessagesStr)
-            : DEFAULT_DEMO_MESSAGES;
-          const filteredMessages = allMessages.filter((m) => m.match_id === matchId);
-          setMessages(filteredMessages);
-
-          // Fetch partner liked history
-          setPartnerHistory(DEMO_PARTNER_HISTORY[partnerId] || []);
-        }
-        setLoading(false);
-        return;
-      }
-
-      // --- REAL DATABASE OPERATION ---
-      // 1. Fetch match record
-      const { data: dbMatch, error: matchError } = await supabase
-        .from('matches')
-        .select('*')
-        .eq('id', matchId)
-        .single();
-
-      if (matchError) throw matchError;
-      setMatch(dbMatch);
-
-      if (dbMatch) {
-        const partnerId = dbMatch.user_a === currentUserId ? dbMatch.user_b : dbMatch.user_a;
-
-        // 2. Fetch partner profile
-        const { data: dbProfile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, full_name, age, bio, photos')
-          .eq('id', partnerId)
-          .single();
-
-        if (profileError) throw profileError;
-        setPartnerProfile(dbProfile);
-
-        // 3. Fetch message log
-        const { data: dbMessages, error: messagesError } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('match_id', matchId)
-          .order('created_at', { ascending: true });
-
-        if (messagesError) throw messagesError;
-        setMessages(dbMessages || []);
-
-        // 4. Fetch partner shared Reels history
-        const { data: historyData, error: historyError } = await supabase
-          .from('userid_videos')
-          .select(`
-            id,
-            created_at,
-            videos (
-              id,
-              url,
-              summary,
-              username,
-              thumbnail_url
-            )
-          `)
-          .eq('user_id', partnerId)
-          .order('created_at', { ascending: false });
-
-        if (historyError) throw historyError;
-
-        if (historyData) {
-          const formatted: ShareHistoryItem[] = historyData
-            .filter((item: any) => item.videos !== null)
-            .map((item: any) => {
-              const video = item.videos;
-              const url = video.url;
-
-              let type: 'post' | 'reel' | 'other' = 'other';
-              let shortcode = 'N/A';
-              if (url.includes('/p/')) {
-                type = 'post';
-                const parts = url.split('/p/');
-                if (parts[1]) shortcode = parts[1].split('/')[0] || 'N/A';
-              } else if (url.includes('/reel/')) {
-                type = 'reel';
-                const parts = url.split('/reel/');
-                if (parts[1]) shortcode = parts[1].split('/')[0] || 'N/A';
-              }
-
-              const timeStr = new Date(item.created_at).toLocaleDateString([], {
-                month: 'short',
-                day: 'numeric',
-              });
-
-              return {
-                id: video.id || item.id,
-                url,
-                timestamp: timeStr,
-                type,
-                shortcode,
-                summary: video.summary || undefined,
-                username: video.username || undefined,
-                thumbnail_url: video.thumbnail_url || undefined,
-              };
-            });
-          setPartnerHistory(formatted);
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to load chat details:', err.message);
-      Alert.alert('Error', 'Unable to fetch conversation.');
-    } finally {
-      setLoading(false);
-    }
-  }, [matchId, currentUserId, isDemoMode]);
-
-  useEffect(() => {
-    fetchChatDetails();
-  }, [fetchChatDetails]);
+  const loading = messagesLoading;
 
   // Scoped Supabase Realtime Listener for messages in this match ID
   useEffect(() => {
@@ -255,33 +133,26 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
             const newMsg = payload.new as MessageRecord;
             console.log('🔥 [REALTIME TRIGGERED] New message received for match:', matchId, newMsg.content);
 
-            setMessages((prev) => {
-              // De-duplicate any optimistic local inserts
-              const filtered = prev.filter(
-                (m) =>
-                  !(
-                    m.id.startsWith('temp-') &&
-                    m.sender_id === newMsg.sender_id &&
-                    m.content === newMsg.content
-                  )
-              );
-              if (filtered.some((m) => m.id === newMsg.id)) {
-                return filtered;
+            queryClient.setQueryData<MessageRecord[]>(
+              CHAT_QUERY_KEYS.messages(matchId),
+              (old) => {
+                if (!old) return [newMsg];
+                if (old.some((m) => m.id === newMsg.id)) return old;
+                // De-duplicate optimistic insertions
+                const filtered = old.filter((m) => !(m.id.startsWith('temp-') && m.content === newMsg.content));
+                return [...filtered, newMsg];
               }
-              return [...filtered, newMsg];
-            });
+            );
           }
         )
-        .subscribe((status) => {
-          console.log(`🔌 Realtime message status for match ${matchId}: ${status}`);
-        });
+        .subscribe();
 
       return () => {
         console.log(`🔌 Unsubscribing from Supabase Realtime match channel: ${matchId}`);
         supabase.removeChannel(channel);
       };
     }
-  }, [matchId, isDemoMode]);
+  }, [matchId, isDemoMode, queryClient]);
 
   // Scroll Chat to bottom when new messages load
   useEffect(() => {
@@ -298,21 +169,11 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
         style: 'destructive',
         onPress: async () => {
           try {
-            if (isDemoMode || !isSupabaseConfigured) {
-              const localMatchesStr = await AsyncStorage.getItem('@demo_matches');
-              const localMatches: MatchRecord[] = localMatchesStr ? JSON.parse(localMatchesStr) : [];
-              const updatedMatches = localMatches.filter((m) => m.id !== matchId);
-              await AsyncStorage.setItem('@demo_matches', JSON.stringify(updatedMatches));
-              navigation.goBack();
-              return;
-            }
-
-            const { error } = await supabase
-              .from('matches')
-              .update({ status: 'unmatched' })
-              .eq('id', matchId);
-
-            if (error) throw error;
+            await unmatchMutation.mutateAsync({
+              matchId,
+              currentUserId,
+              isDemoMode,
+            });
             navigation.goBack();
             Alert.alert('Unmatched', 'You have successfully unmatched this user.');
           } catch (err: any) {
@@ -333,42 +194,14 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
     setTypedMessage('');
     setReferredReel(null);
 
-    const tempId = `temp-${Date.now()}`;
-    const optimisticMsg: MessageRecord = {
-      id: tempId,
-      match_id: matchId,
-      sender_id: currentUserId,
-      content: messageContent,
-      created_at: new Date().toISOString(),
-    };
-
-    // Optimistically update message bubble instantly
-    setMessages((prev) => [...prev, optimisticMsg]);
-
     try {
-      if (isDemoMode || !isSupabaseConfigured) {
-        const localMessagesStr = await AsyncStorage.getItem('@demo_messages');
-        const allMessages: MessageRecord[] = localMessagesStr
-          ? JSON.parse(localMessagesStr)
-          : DEFAULT_DEMO_MESSAGES;
-        const updatedMessages = [...allMessages, optimisticMsg];
-        await AsyncStorage.setItem('@demo_messages', JSON.stringify(updatedMessages));
-        return;
-      }
-
-      const { error } = await supabase.from('messages').insert({
-        match_id: matchId,
-        sender_id: currentUserId,
+      await sendMessageMutation.mutateAsync({
+        matchId,
+        senderId: currentUserId,
         content: messageContent,
+        isDemoMode,
       });
-
-      if (error) {
-        // Rollback state if database insert failed
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
-        throw error;
-      }
     } catch (err: any) {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       Alert.alert('Failed to send', err.message || 'Check your internet connection.');
     }
   };
@@ -400,7 +233,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
         {/* Chat Header */}
         <View style={styles.chatHeader}>
           <TouchableOpacity style={styles.circularBackBtn} onPress={() => navigation.goBack()} activeOpacity={0.8}>
-            <ArrowLeft size={22} color="#1C0B05" strokeWidth={2.5} />
+            <ArrowLeft size={22} color={COLORS.primaryText} strokeWidth={2.5} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -539,7 +372,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
                 activeOpacity={0.7}
               >
                 <Film size={15} color={COLORS.accent} />
-                <Text style={styles.likedContentTitle}>
+                <Text style={styles.likedContentTitle} numberOfLines={1}>
                   {partnerProfile?.full_name}'s Shared Reels ({partnerHistory.length})
                 </Text>
                 {isHistoryCollapsed ? (
@@ -555,7 +388,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
                 activeOpacity={0.75}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               >
-                <Sparkles size={16} color="#331005" fill="#FFBE54" />
+                <Sparkles size={16} color={COLORS.primaryText} fill={COLORS.accent} />
               </TouchableOpacity>
             </View>
 
@@ -588,9 +421,9 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
                       />
                       <View style={styles.simpleThumbBadge}>
                         {item.type === 'reel' ? (
-                          <Film size={10} color="#FFFFFF" />
+                          <Film size={10} color={COLORS.white} />
                         ) : (
-                          <Camera size={10} color="#FFFFFF" />
+                          <Camera size={10} color={COLORS.white} />
                         )}
                       </View>
                     </TouchableOpacity>
@@ -685,7 +518,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -899,13 +732,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingLeft: 16,
+    paddingRight: 16,
   },
   likedContentTitleRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingVertical: 12,
   },
   likedContentEmoji: {
     fontSize: 14,

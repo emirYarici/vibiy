@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { PROFILE_QUERY_KEYS } from '../shared/queries/useProfile';
 import {
   StyleSheet,
   Text,
@@ -26,13 +28,16 @@ interface ProfileOnboardingProps {
   session: any;
   isDemoMode: boolean;
   onOnboardingComplete: () => void;
+  onLogout?: () => void;
 }
 
 export default function ProfileOnboarding({
   session,
   isDemoMode,
   onOnboardingComplete,
+  onLogout,
 }: ProfileOnboardingProps) {
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
   const [name, setName] = useState('');
   const [age, setAge] = useState('');
@@ -222,10 +227,11 @@ export default function ProfileOnboarding({
       await AsyncStorage.setItem('@profile_photos', JSON.stringify(photos));
 
       if (isSupabaseConfigured && !isDemoMode) {
-        // Save to Supabase profiles table
+        // Upsert to Supabase profiles table
         const { error } = await supabase
           .from('profiles')
-          .update({
+          .upsert({
+            id: session.user.id,
             full_name: name.trim(),
             age: parsedAge,
             gender: gender,
@@ -233,12 +239,12 @@ export default function ProfileOnboarding({
             location: latitude && longitude ? `POINT(${longitude} ${latitude})` : null,
             bio: bio.trim(),
             photos: filteredPhotos,
-          })
-          .eq('id', session.user.id);
+          }, { onConflict: 'id' });
 
         if (error) throw error;
       }
 
+      await queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEYS.detail(session.user.id) });
       onOnboardingComplete();
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to save profile. Please try again.');
@@ -259,7 +265,7 @@ export default function ProfileOnboarding({
               ]}
             >
               {currentStep > step ? (
-                <Check size={13} color="#1C0B05" strokeWidth={3.5} />
+                <Check size={13} color={COLORS.primaryText} strokeWidth={3.5} />
               ) : (
                 <Text
                   style={[
@@ -400,7 +406,7 @@ export default function ProfileOnboarding({
                       disabled={locating}
                     >
                       {locating ? (
-                        <ActivityIndicator size="small" color="#1C0B05" />
+                        <ActivityIndicator size="small" color={COLORS.primaryText} />
                       ) : (
                         <Text style={styles.locationBtnText}>Enable Location</Text>
                       )}
@@ -458,7 +464,7 @@ export default function ProfileOnboarding({
                       style={styles.changeCoverBtn}
                       onPress={() => handlePhotoSelect(0)}
                     >
-                      <Camera size={14} color="#FFFFFF" />
+                      <Camera size={14} color={COLORS.white} />
                       <Text style={styles.changeCoverBtnText}>Change</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -606,7 +612,7 @@ export default function ProfileOnboarding({
               {/* Rule of 3 Banner */}
               <View style={styles.ruleBanner}>
                 <View style={styles.ruleFlameIconBg}>
-                  <Flame size={20} color="#E4281F" fill="#FFBE54" />
+                  <Flame size={20} color={COLORS.danger} fill={COLORS.accent} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.ruleBannerTitle}>3 Reels Every Day 🔥</Text>
@@ -630,7 +636,14 @@ export default function ProfileOnboarding({
         style={styles.container}
       >
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>VIBIY</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 12 }}>
+            <Text style={styles.headerTitle}>VIBIY</Text>
+            {onLogout && (
+              <TouchableOpacity onPress={onLogout} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.pill, backgroundColor: 'rgba(255, 255, 255, 0.15)' }}>
+                <Text style={{ color: COLORS.textDark, fontSize: 12, fontWeight: '700' }}>Log Out</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           {renderStepIndicator()}
         </View>
 
@@ -641,7 +654,7 @@ export default function ProfileOnboarding({
         <View style={styles.footer}>
           {currentStep > 1 ? (
             <TouchableOpacity style={styles.backButton} onPress={handleBack} disabled={submitting} activeOpacity={0.75}>
-              <ArrowLeft size={18} color="#FFFFFF" strokeWidth={2.5} />
+              <ArrowLeft size={18} color={COLORS.white} strokeWidth={2.5} />
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
           ) : (
@@ -651,7 +664,7 @@ export default function ProfileOnboarding({
           {currentStep < 6 ? (
             <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
               <Text style={styles.nextButtonText}>Next</Text>
-              <ArrowRight size={20} color="#1C0B05" strokeWidth={2.5} />
+              <ArrowRight size={20} color={COLORS.primaryText} strokeWidth={2.5} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -660,11 +673,11 @@ export default function ProfileOnboarding({
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#1C0B05" />
+                <ActivityIndicator size="small" color={COLORS.primaryText} />
               ) : (
                 <>
                   <Text style={styles.nextButtonText}>Let's Vibe!</Text>
-                  <Sparkles size={20} color="#1C0B05" strokeWidth={2.5} />
+                  <Sparkles size={20} color={COLORS.primaryText} strokeWidth={2.5} />
                 </>
               )}
             </TouchableOpacity>
@@ -695,7 +708,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 22,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: COLORS.white,
     letterSpacing: 3,
     marginBottom: 14,
   },
@@ -718,8 +731,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   activeStepCircle: {
-    backgroundColor: '#FFBE54',
-    borderColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
+    borderColor: COLORS.accent,
   },
   inactiveStepCircle: {
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
@@ -730,10 +743,10 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   activeStepText: {
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   inactiveStepText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
   },
   stepLine: {
     width: 22,
@@ -741,7 +754,7 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
   },
   activeStepLine: {
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
   },
   inactiveStepLine: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -865,7 +878,7 @@ const styles = StyleSheet.create({
   primaryCoverBadgeText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: COLORS.white,
     letterSpacing: 0.5,
   },
   coverActionButtons: {
@@ -886,7 +899,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.pill,
   },
   changeCoverBtnText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -899,7 +912,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteBadgeText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -971,14 +984,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   backButtonText: {
-    color: '#FFFFFF',
+    color: COLORS.white,
     fontSize: 14,
     fontWeight: '800',
   },
   nextButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     paddingVertical: 14,
     paddingHorizontal: 26,
     borderRadius: RADIUS.pill,
@@ -988,7 +1001,7 @@ const styles = StyleSheet.create({
   finishButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     paddingVertical: 14,
     paddingHorizontal: 26,
     borderRadius: RADIUS.pill,
@@ -996,7 +1009,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.floating,
   },
   nextButtonText: {
-    color: '#1C0B05',
+    color: COLORS.primaryText,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -1005,28 +1018,27 @@ const styles = StyleSheet.create({
   },
   pillContainer: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     marginTop: 8,
-    flexWrap: 'wrap',
   },
   pillButton: {
     backgroundColor: COLORS.cardBgIvory,
     borderRadius: RADIUS.pill,
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
-    minWidth: 100,
     ...SHADOWS.sm,
   },
   pillButtonActive: {
     backgroundColor: COLORS.accent,
   },
   pillText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: COLORS.textDarkSecondary,
+    textAlign: 'center',
   },
   pillTextActive: {
     color: COLORS.textDark,
@@ -1074,7 +1086,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   locationBtnText: {
-    color: '#1C0B05',
+    color: COLORS.primaryText,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -1131,7 +1143,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
@@ -1139,7 +1151,7 @@ const styles = StyleSheet.create({
   shareStepNumberText: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   shareStepBody: {
     flex: 1,
@@ -1190,7 +1202,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.card,
     padding: 16,
     borderWidth: 1.5,
-    borderColor: '#FFBE54',
+    borderColor: COLORS.accent,
     ...SHADOWS.md,
   },
   ruleFlameIconBg: {

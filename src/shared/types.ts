@@ -46,9 +46,13 @@ export interface MatchRecord {
 export interface DBProfile {
   id: string;
   full_name: string;
-  age: number;
-  bio: string;
+  age?: number | string;
+  bio?: string;
   photos: string[];
+  occupation?: string;
+  gender?: 'man' | 'woman' | 'non_binary' | string;
+  preference?: 'men' | 'women' | 'everyone' | string;
+  location?: any;
 }
 
 export interface MessageRecord {

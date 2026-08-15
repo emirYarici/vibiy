@@ -84,6 +84,10 @@ export default function SkeletonImage({
   const borderBottomLeftRadius = flattenedStyle.borderBottomLeftRadius || borderRadius;
   const borderBottomRightRadius = flattenedStyle.borderBottomRightRadius || borderRadius;
 
+  const finalSource = source && typeof source === 'object' && 'uri' in source && source.uri
+    ? { ...source, cache: 'force-cache' as const }
+    : source;
+
   return (
     <View
       style={[
@@ -127,7 +131,7 @@ export default function SkeletonImage({
       {/* Image with smooth fade-in */}
       <Animated.Image
         {...rest}
-        source={source}
+        source={finalSource}
         style={[style, { opacity: imageOpacity }]}
         onLoadStart={handleLoadStart}
         onLoadEnd={handleLoadEnd}

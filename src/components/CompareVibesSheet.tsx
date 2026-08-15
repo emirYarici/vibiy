@@ -13,7 +13,7 @@ import BottomSheet, {
   BottomSheetScrollView,
   BottomSheetBackdrop,
 } from '@gorhom/bottom-sheet';
-import { X, MessageCircle, Play, Film } from 'lucide-react-native';
+import { X, Play, Film } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { CONFIG } from '../shared/config';
 import { DBProfile, getMatchArchetype, ShareHistoryItem } from '../shared/types';
@@ -101,14 +101,6 @@ export default function CompareVibesSheet({
 
   const archetype = getMatchArchetype(score);
   const partnerName = partnerProfile?.full_name?.split(' ')[0] || 'Match';
-
-  const handleStartChat = () => {
-    bottomSheetRef.current?.close();
-    onClose();
-    if (onStartChatWithPrompt) {
-      onStartChatWithPrompt(`Hey ${partnerName}! Loved checking out your shared reels on Vibiy!`);
-    }
-  };
 
   const handleOpenReel = (url?: string) => {
     if (url) {
@@ -233,7 +225,7 @@ export default function CompareVibesSheet({
 
                       {/* Bottom Play Badge */}
                       <View style={styles.bottomPlayBadge}>
-                        <Play size={13} color="#FFFFFF" fill="#FFFFFF" />
+                        <Play size={13} color={COLORS.white} fill={COLORS.white} />
                         <Text style={styles.watchText}>Watch</Text>
                       </View>
                     </View>
@@ -243,16 +235,6 @@ export default function CompareVibesSheet({
             </ScrollView>
           )}
         </View>
-
-        {/* Primary Action Button */}
-        <TouchableOpacity
-          style={styles.startChatBtn}
-          activeOpacity={0.85}
-          onPress={handleStartChat}
-        >
-          <MessageCircle size={18} color={COLORS.accentText} strokeWidth={2.5} />
-          <Text style={styles.startChatBtnText}>Chat with {partnerName}</Text>
-        </TouchableOpacity>
       </BottomSheetScrollView>
     </BottomSheet>
   );
@@ -435,7 +417,7 @@ const styles = StyleSheet.create({
   usernamePillText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: COLORS.white,
   },
   bottomPlayBadge: {
     position: 'absolute',
@@ -452,23 +434,6 @@ const styles = StyleSheet.create({
   watchText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  /* Start Chat CTA */
-  startChatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: COLORS.accent,
-    paddingVertical: 14,
-    borderRadius: RADIUS.pill,
-    marginTop: 8,
-    ...SHADOWS.md,
-  },
-  startChatBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: COLORS.accentText,
+    color: COLORS.white,
   },
 });

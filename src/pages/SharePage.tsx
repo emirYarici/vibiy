@@ -593,11 +593,11 @@ export default function SharePage({
                       />
                       {/* Check badge on top right */}
                       <View style={styles.milestoneCheckBadge}>
-                        <Check size={11} color="#FFFFFF" strokeWidth={3} />
+                        <Check size={11} color={COLORS.white} strokeWidth={3} />
                       </View>
                       {/* External link hint on bottom right */}
                       <View style={styles.milestoneTapHint}>
-                        <ExternalLink size={10} color="#FFFFFF" strokeWidth={2.5} />
+                        <ExternalLink size={10} color={COLORS.white} strokeWidth={2.5} />
                       </View>
                     </TouchableOpacity>
                   ) : (
@@ -773,7 +773,7 @@ export default function SharePage({
         <BottomSheetView style={helpStyles.content}>
           {/* Header Icon */}
           <View style={helpStyles.iconWrap}>
-            <Zap size={28} color="#1C0B05" fill="#FFBE54" />
+            <Zap size={28} color={COLORS.primaryText} fill={COLORS.accent} />
           </View>
 
           <Text style={helpStyles.title}>How to Share Reels</Text>
@@ -852,7 +852,7 @@ const helpStyles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -895,7 +895,7 @@ const helpStyles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
@@ -903,7 +903,7 @@ const helpStyles = StyleSheet.create({
   stepBadgeText: {
     fontSize: 12,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   methodTitle: {
     fontSize: 14,
@@ -942,13 +942,13 @@ const helpStyles = StyleSheet.create({
     width: '100%',
     height: 52,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.floating,
   },
   gotItBtnText: {
-    color: '#1C0B05',
+    color: COLORS.primaryText,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -970,7 +970,7 @@ const invalidStyles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: '#FFE5E5',
+    backgroundColor: 'rgba(228, 40, 31, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
@@ -1007,7 +1007,7 @@ const invalidStyles = StyleSheet.create({
   },
   urlText: {
     fontSize: 12,
-    color: '#C0392B',
+    color: COLORS.danger,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -1025,7 +1025,7 @@ const invalidStyles = StyleSheet.create({
     width: '100%',
     height: 52,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.floating,
@@ -1033,7 +1033,7 @@ const invalidStyles = StyleSheet.create({
   dismissText: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
 });
 
@@ -1062,6 +1062,7 @@ const confirmStyles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 20,
     marginTop: 8,
+    ...SHADOWS.sm,
   },
   title: {
     fontSize: 22,
@@ -1076,7 +1077,7 @@ const confirmStyles = StyleSheet.create({
     color: COLORS.textDarkSecondary,
     lineHeight: 21,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 24,
   },
   highlight: {
     color: COLORS.textDark,
@@ -1095,7 +1096,7 @@ const confirmStyles = StyleSheet.create({
     color: COLORS.textDarkSecondary,
     fontWeight: '600',
   },
-  actions: {
+  btnRow: {
     flexDirection: 'row',
     gap: 12,
     width: '100%',
@@ -1119,7 +1120,7 @@ const confirmStyles = StyleSheet.create({
     flex: 1,
     height: 52,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.floating,
@@ -1127,7 +1128,7 @@ const confirmStyles = StyleSheet.create({
   confirmText: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
 });
 
@@ -1171,7 +1172,7 @@ const styles = StyleSheet.create({
   helpQuestionMark: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   progressBadge: {
     flexDirection: 'row',
@@ -1230,7 +1231,7 @@ const styles = StyleSheet.create({
   milestoneSlot: {
     flex: 1,
     height: 118,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: COLORS.white,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1.5,
@@ -1241,7 +1242,7 @@ const styles = StyleSheet.create({
   },
   milestoneSlotCompleted: {
     borderWidth: 2,
-    borderColor: '#FFBE54',
+    borderColor: COLORS.accent,
     backgroundColor: COLORS.cardBg,
     ...SHADOWS.md,
   },
@@ -1272,7 +1273,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     right: 6,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     width: 22,
     height: 22,
     borderRadius: 11,
@@ -1292,7 +1293,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.sm,
@@ -1300,7 +1301,7 @@ const styles = StyleSheet.create({
   milestoneNumberText: {
     fontSize: 15,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   milestoneSlotLabel: {
     fontSize: 12,
@@ -1317,7 +1318,7 @@ const styles = StyleSheet.create({
   },
   progressTrackFill: {
     height: '100%',
-    backgroundColor: '#FFBE54',
+    backgroundColor: COLORS.accent,
     borderRadius: 4,
   },
   glassCard: {
@@ -1345,7 +1346,7 @@ const styles = StyleSheet.create({
   inputHelpBtnText: {
     fontSize: 12,
     fontWeight: '900',
-    color: '#1C0B05',
+    color: COLORS.primaryText,
   },
   cardTitle: {
     fontSize: 20,

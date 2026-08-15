@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   labelText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: COLORS.white,
     letterSpacing: 0.8,
   },
   livePill: {
@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   timerDigits: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#FFBE54',
+    color: COLORS.accent,
     fontVariant: ['tabular-nums'],
     letterSpacing: 0.5,
   },
