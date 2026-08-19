@@ -26,6 +26,15 @@ import {
   BottomSheetModalProvider,
 } from '@gorhom/bottom-sheet';
 
+import AnimatedReanimated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate as reanimatedInterpolate,
+  Extrapolation,
+  type SharedValue,
+} from 'react-native-reanimated';
+
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
 import { CONFIG } from '../shared/config';
@@ -84,11 +93,139 @@ function getOrdinal(n: number): string {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SLOT_CARD_WIDTH = 175;
-const SLOT_CARD_HEIGHT = 215;
+const SLOT_CARD_WIDTH = 160;
+const SLOT_CARD_HEIGHT = 195;
 const SLOT_GAP = 14;
 const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
 const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 84 - SLOT_CARD_WIDTH) / 2);
+
+interface SlotCarouselItemProps {
+  idx: number;
+  index: number;
+  scrollX: SharedValue<number>;
+  item: ShareHistoryItem | undefined;
+  isCompleted: boolean;
+  onPaste: () => void;
+}
+
+function SlotCarouselItem({
+  idx,
+  index,
+  scrollX,
+  item,
+  isCompleted,
+  onPaste,
+}: SlotCarouselItemProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const inputRange = [
+      (index - 1) * SLOT_ITEM_SIZE,
+      index * SLOT_ITEM_SIZE,
+      (index + 1) * SLOT_ITEM_SIZE,
+    ];
+
+    // Makes current snapped item significantly bigger (scale 1.15 when centered vs 0.82 when off-center)
+    const scale = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [0.82, 1.15, 0.82],
+      Extrapolation.CLAMP
+    );
+
+    const rotateY = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [-24, 0, 24],
+      Extrapolation.CLAMP
+    );
+
+    const rotateZ = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [-8, 0, 8],
+      Extrapolation.CLAMP
+    );
+
+    const opacity = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [0.65, 1, 0.65],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      opacity,
+      transform: [
+        { perspective: 1000 },
+        { scale },
+        { rotateY: `${rotateY}deg` },
+        { rotate: `${rotateZ}deg` },
+      ],
+    };
+  });
+
+  return (
+    <AnimatedReanimated.View style={[styles.carouselCardWrapper, animatedStyle]}>
+      <View
+        style={[
+          styles.milestoneSlot,
+          isCompleted && styles.milestoneSlotCompleted,
+        ]}
+      >
+        {item ? (
+          <TouchableOpacity
+            style={styles.milestoneThumbContainer}
+            activeOpacity={0.8}
+            onPress={() =>
+              Linking.openURL(item.url).catch(() =>
+                Alert.alert('Error', 'Cannot open Instagram.')
+              )
+            }
+          >
+            <InstagramThumbnail
+              url={item.url}
+              thumbnailUrl={item.thumbnail_url}
+              width={SLOT_CARD_WIDTH}
+              height={SLOT_CARD_HEIGHT}
+              borderRadius={20}
+            />
+            {/* Slot Badge */}
+            <View style={styles.milestoneSlotBadge}>
+              <Text style={styles.milestoneSlotBadgeText}>Slot {idx + 1}</Text>
+            </View>
+            {/* Check badge on top right */}
+            <View style={styles.milestoneCheckBadge}>
+              <Check size={12} color={COLORS.white} strokeWidth={3} />
+            </View>
+            {/* Username Footer */}
+            {item.username ? (
+              <View style={styles.milestoneFooterOverlay}>
+                <Text style={styles.milestoneFooterHandle} numberOfLines={1}>
+                  @{item.username}
+                </Text>
+              </View>
+            ) : null}
+            {/* External link hint on bottom right */}
+            <View style={styles.milestoneTapHint}>
+              <ExternalLink size={12} color={COLORS.white} strokeWidth={2.5} />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.milestoneEmptyTrigger}
+            onPress={onPaste}
+            activeOpacity={0.75}
+          >
+            <View style={styles.milestoneNumberBg}>
+              <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
+            </View>
+            <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
+            <Text style={styles.milestoneSlotSubLabel}>Tap to paste Reel 📋</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </AnimatedReanimated.View>
+  );
+}
 
 interface SharePageProps {
   session?: any;
@@ -135,7 +272,13 @@ export default function SharePage({
   const isProcessing = processVideoMutation.isPending;
 
   const buttonScale = useRef(new Animated.Value(1)).current;
-  const slotScrollX = useRef(new Animated.Value(0)).current;
+  const carouselScrollX = useSharedValue(0);
+
+  const onCarouselScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      carouselScrollX.value = event.contentOffset.x;
+    },
+  });
 
   // Listen to initialSharedUrl passed from root and process immediately
   useEffect(() => {
@@ -275,9 +418,9 @@ export default function SharePage({
               : "Share at least 3 videos today so our AI can match you with people who share your humor & aesthetic."}
           </Text>
 
-          {/* 3 Milestone Slots Swipable Carousel */}
+          {/* 3 Milestone Slots Swipable Reanimated Carousel */}
           <View style={styles.carouselWrapper}>
-            <Animated.FlatList
+            <AnimatedReanimated.FlatList
               data={[0, 1, 2]}
               keyExtractor={(item) => item.toString()}
               horizontal
@@ -295,123 +438,18 @@ export default function SharePage({
                 styles.carouselContentContainer,
                 { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
               ]}
-              onScroll={Animated.event(
-                [{ nativeEvent: { contentOffset: { x: slotScrollX } } }],
-                { useNativeDriver: true }
-              )}
+              onScroll={onCarouselScroll}
               scrollEventThrottle={16}
-              renderItem={({ item: idx, index }) => {
-                const item = todayItems[idx];
-                const isCompleted = idx < sharedCount;
-
-                const inputRange = [
-                  (index - 1) * SLOT_ITEM_SIZE,
-                  index * SLOT_ITEM_SIZE,
-                  (index + 1) * SLOT_ITEM_SIZE,
-                ];
-
-                const scale = slotScrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.85, 1, 0.85],
-                  extrapolate: 'clamp',
-                });
-
-                const rotateY = slotScrollX.interpolate({
-                  inputRange,
-                  outputRange: ['-22deg', '0deg', '22deg'],
-                  extrapolate: 'clamp',
-                });
-
-                const rotateZ = slotScrollX.interpolate({
-                  inputRange,
-                  outputRange: ['-6deg', '0deg', '6deg'],
-                  extrapolate: 'clamp',
-                });
-
-                const opacity = slotScrollX.interpolate({
-                  inputRange,
-                  outputRange: [0.75, 1, 0.75],
-                  extrapolate: 'clamp',
-                });
-
-                return (
-                  <Animated.View
-                    style={[
-                      styles.carouselCardWrapper,
-                      {
-                        opacity,
-                        transform: [
-                          { perspective: 800 },
-                          { scale },
-                          { rotateY },
-                          { rotate: rotateZ },
-                        ],
-                      },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.milestoneSlot,
-                        isCompleted && styles.milestoneSlotCompleted,
-                      ]}
-                    >
-                      {item ? (
-                        <TouchableOpacity
-                          style={styles.milestoneThumbContainer}
-                          activeOpacity={0.8}
-                          onPress={() =>
-                            Linking.openURL(item.url).catch(() =>
-                              Alert.alert('Error', 'Cannot open Instagram.')
-                            )
-                          }
-                        >
-                          <InstagramThumbnail
-                            url={item.url}
-                            thumbnailUrl={item.thumbnail_url}
-                            width={SLOT_CARD_WIDTH}
-                            height={SLOT_CARD_HEIGHT}
-                            borderRadius={20}
-                          />
-                          {/* Slot Badge */}
-                          <View style={styles.milestoneSlotBadge}>
-                            <Text style={styles.milestoneSlotBadgeText}>Slot {idx + 1}</Text>
-                          </View>
-                          {/* Check badge on top right */}
-                          <View style={styles.milestoneCheckBadge}>
-                            <Check size={12} color={COLORS.white} strokeWidth={3} />
-                          </View>
-                          {/* Username Footer */}
-                          {item.username ? (
-                            <View style={styles.milestoneFooterOverlay}>
-                              <Text style={styles.milestoneFooterHandle} numberOfLines={1}>
-                                @{item.username}
-                              </Text>
-                            </View>
-                          ) : null}
-                          {/* External link hint on bottom right */}
-                          <View style={styles.milestoneTapHint}>
-                            <ExternalLink size={12} color={COLORS.white} strokeWidth={2.5} />
-                          </View>
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity
-                          style={styles.milestoneEmptyTrigger}
-                          onPress={() => {
-                            handlePaste();
-                          }}
-                          activeOpacity={0.75}
-                        >
-                          <View style={styles.milestoneNumberBg}>
-                            <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
-                          </View>
-                          <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
-                          <Text style={styles.milestoneSlotSubLabel}>Tap to paste Reel 📋</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </Animated.View>
-                );
-              }}
+              renderItem={({ item: idx, index }) => (
+                <SlotCarouselItem
+                  idx={idx}
+                  index={index}
+                  scrollX={carouselScrollX}
+                  item={todayItems[idx]}
+                  isCompleted={idx < sharedCount}
+                  onPaste={handlePaste}
+                />
+              )}
             />
           </View>
 
@@ -1027,7 +1065,8 @@ const styles = StyleSheet.create({
     marginHorizontal: -22,
     marginBottom: 20,
     marginTop: 8,
-    height: 225,
+    height: 255,
+    justifyContent: 'center',
   },
   carouselContentContainer: {
     alignItems: 'center',
