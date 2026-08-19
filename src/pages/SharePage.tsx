@@ -29,6 +29,7 @@ import { ShareHistoryItem } from '../shared/types';
 import { CONFIG } from '../shared/config';
 import SkeletonImage from '../components/SkeletonImage';
 import VideoAnalyzingOverlay from '../components/VideoAnalyzingOverlay';
+import ShareSuccessModal from '../components/ShareSuccessModal';
 
 const getInstagramThumbnail = (url: string) => {
   if (!url) return null;
@@ -100,6 +101,7 @@ export default function SharePage({
   const [inputText, setInputText] = useState('');
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
   const [invalidUrl, setInvalidUrl] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const confirmSheetRef = useRef<BottomSheetModal>(null);
   const invalidSheetRef = useRef<BottomSheetModal>(null);
   const localHelpSheetRef = useRef<BottomSheetModal>(null);
@@ -147,7 +149,7 @@ export default function SharePage({
       if (onUpdateHistory) {
         onUpdateHistory(queryHistory);
       }
-      Alert.alert('Success', 'Instagram video added to your daily drop goal!');
+      setShowSuccessModal(true);
     } catch (err: any) {
       console.error('Error processing shared URL:', err);
       Alert.alert('Processing Failed', err.message || 'Unable to process Instagram video.');
@@ -226,6 +228,11 @@ export default function SharePage({
   return (
     <>
       <VideoAnalyzingOverlay visible={isProcessing} />
+      <ShareSuccessModal
+        visible={showSuccessModal}
+        onClose={() => setShowSuccessModal(false)}
+        sharedCount={sharedCount}
+      />
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         {/* 🎯 "3 Videos to Unlock" Daily Progress Bar Card */}
         <View style={[styles.progressCard, isDropUnlocked && styles.progressCardUnlocked]}>
