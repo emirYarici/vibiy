@@ -426,8 +426,10 @@ export default function SharePage({
               keyExtractor={(item) => item.toString()}
               horizontal
               showsHorizontalScrollIndicator={false}
-              snapToOffsets={SNAP_OFFSETS}
+              snapToInterval={SLOT_ITEM_SIZE}
+              snapToAlignment="center"
               decelerationRate="fast"
+              disableIntervalMomentum={true}
               nestedScrollEnabled
               contentContainerStyle={[
                 styles.carouselContentContainer,
