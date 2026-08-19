@@ -111,7 +111,7 @@ export const VideoAnalyzingOverlay: React.FC<VideoAnalyzingOverlayProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(10, 10, 16, 0.78)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -119,14 +119,18 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 320,
-    backgroundColor: '#181822',
-    borderRadius: RADIUS.xl,
+    backgroundColor: COLORS.cardBgIvory || '#FCEEC9',
+    borderRadius: RADIUS.xl || 28,
     paddingVertical: 28,
     paddingHorizontal: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    ...SHADOWS.lg,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.25,
+    shadowRadius: 32,
+    elevation: 20,
   },
   lottieContainer: {
     marginBottom: 12,
@@ -135,11 +139,11 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '800',
+    color: COLORS.textDark || '#331005',
     marginBottom: 6,
     textAlign: 'center',
-    letterSpacing: 0.2,
+    letterSpacing: -0.3,
   },
   subtitleContainer: {
     minHeight: 22,
@@ -148,7 +152,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 14,
-    color: COLORS.textMuted || '#A0A0B0',
+    color: COLORS.textDarkSecondary || '#78432C',
     textAlign: 'center',
     fontWeight: '500',
   },
@@ -161,11 +165,11 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(0, 0, 0, 0.12)',
   },
   dotActive: {
     width: 20,
-    backgroundColor: COLORS.primary || '#FF3B5C',
+    backgroundColor: COLORS.textDark || '#331005',
   },
 });
 
