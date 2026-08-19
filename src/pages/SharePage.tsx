@@ -15,6 +15,8 @@ import {
   NativeModules,
   Image,
   Modal,
+  FlatList,
+  Dimensions,
 } from 'react-native';
 import { Film, Camera, Play, Sparkles, Check, Flame, ExternalLink, XCircle, HelpCircle, Zap, X } from 'lucide-react-native';
 import {
@@ -81,6 +83,12 @@ function getOrdinal(n: number): string {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SLOT_CARD_WIDTH = 165;
+const SLOT_CARD_HEIGHT = 210;
+const SLOT_GAP = 14;
+const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
+
 interface SharePageProps {
   session?: any;
   initialSharedUrl?: string | null;
@@ -126,6 +134,7 @@ export default function SharePage({
   const isProcessing = processVideoMutation.isPending;
 
   const buttonScale = useRef(new Animated.Value(1)).current;
+  const slotScrollX = useRef(new Animated.Value(0)).current;
 
   // Listen to initialSharedUrl passed from root and process immediately
   useEffect(() => {
@@ -265,62 +274,127 @@ export default function SharePage({
               : "Share at least 3 videos today so our AI can match you with people who share your humor & aesthetic."}
           </Text>
 
-          {/* 3 Milestone Slots */}
-          <View style={styles.milestonesRow}>
-            {[0, 1, 2].map((idx) => {
-              const item = todayItems[idx];
-              const isCompleted = idx < sharedCount;
-              return (
-                <View
-                  key={idx}
-                  style={[
-                    styles.milestoneSlot,
-                    isCompleted && styles.milestoneSlotCompleted,
-                  ]}
-                >
-                  {item ? (
-                    <TouchableOpacity
-                      style={styles.milestoneThumbContainer}
-                      activeOpacity={0.75}
-                      onPress={() =>
-                        Linking.openURL(item.url).catch(() =>
-                          Alert.alert('Error', 'Cannot open Instagram.')
-                        )
-                      }
+          {/* 3 Milestone Slots Swipable Carousel */}
+          <View style={styles.carouselWrapper}>
+            <Animated.FlatList
+              data={[0, 1, 2]}
+              keyExtractor={(item) => item.toString()}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={SLOT_ITEM_SIZE}
+              decelerationRate="fast"
+              contentContainerStyle={styles.carouselContentContainer}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: slotScrollX } } }],
+                { useNativeDriver: true }
+              )}
+              scrollEventThrottle={16}
+              renderItem={({ item: idx, index }) => {
+                const item = todayItems[idx];
+                const isCompleted = idx < sharedCount;
+
+                const inputRange = [
+                  (index - 1) * SLOT_ITEM_SIZE,
+                  index * SLOT_ITEM_SIZE,
+                  (index + 1) * SLOT_ITEM_SIZE,
+                ];
+
+                const scale = slotScrollX.interpolate({
+                  inputRange,
+                  outputRange: [0.85, 1, 0.85],
+                  extrapolate: 'clamp',
+                });
+
+                const rotateY = slotScrollX.interpolate({
+                  inputRange,
+                  outputRange: ['-18deg', '0deg', '18deg'],
+                  extrapolate: 'clamp',
+                });
+
+                const opacity = slotScrollX.interpolate({
+                  inputRange,
+                  outputRange: [0.75, 1, 0.75],
+                  extrapolate: 'clamp',
+                });
+
+                return (
+                  <Animated.View
+                    style={[
+                      styles.carouselCardWrapper,
+                      {
+                        opacity,
+                        transform: [
+                          { perspective: 800 },
+                          { scale },
+                          { rotateY },
+                        ],
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.milestoneSlot,
+                        isCompleted && styles.milestoneSlotCompleted,
+                      ]}
                     >
-                      <InstagramThumbnail
-                        url={item.url}
-                        thumbnailUrl={item.thumbnail_url}
-                        width={86}
-                        height={108}
-                        borderRadius={12}
-                      />
-                      {/* Check badge on top right */}
-                      <View style={styles.milestoneCheckBadge}>
-                        <Check size={11} color={COLORS.white} strokeWidth={3} />
-                      </View>
-                      {/* External link hint on bottom right */}
-                      <View style={styles.milestoneTapHint}>
-                        <ExternalLink size={10} color={COLORS.white} strokeWidth={2.5} />
-                      </View>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.milestoneEmptyTrigger}
-                      onPress={() => {
-                        handlePaste();
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.milestoneNumberBg}>
-                        <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
-                      </View>
-                      <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
+                      {item ? (
+                        <TouchableOpacity
+                          style={styles.milestoneThumbContainer}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            Linking.openURL(item.url).catch(() =>
+                              Alert.alert('Error', 'Cannot open Instagram.')
+                            )
+                          }
+                        >
+                          <InstagramThumbnail
+                            url={item.url}
+                            thumbnailUrl={item.thumbnail_url}
+                            width={SLOT_CARD_WIDTH}
+                            height={SLOT_CARD_HEIGHT}
+                            borderRadius={20}
+                          />
+                          {/* Slot Badge */}
+                          <View style={styles.milestoneSlotBadge}>
+                            <Text style={styles.milestoneSlotBadgeText}>Slot {idx + 1}</Text>
+                          </View>
+                          {/* Check badge on top right */}
+                          <View style={styles.milestoneCheckBadge}>
+                            <Check size={12} color={COLORS.white} strokeWidth={3} />
+                          </View>
+                          {/* Username Footer */}
+                          {item.username ? (
+                            <View style={styles.milestoneFooterOverlay}>
+                              <Text style={styles.milestoneFooterHandle} numberOfLines={1}>
+                                @{item.username}
+                              </Text>
+                            </View>
+                          ) : null}
+                          {/* External link hint on bottom right */}
+                          <View style={styles.milestoneTapHint}>
+                            <ExternalLink size={12} color={COLORS.white} strokeWidth={2.5} />
+                          </View>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.milestoneEmptyTrigger}
+                          onPress={() => {
+                            handlePaste();
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <View style={styles.milestoneNumberBg}>
+                            <Text style={styles.milestoneNumberText}>{idx + 1}</Text>
+                          </View>
+                          <Text style={styles.milestoneSlotLabel}>Slot {idx + 1}</Text>
+                          <Text style={styles.milestoneSlotSubLabel}>Tap to paste Reel 📋</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </Animated.View>
+                );
+              }}
+            />
           </View>
 
           {/* Progress Track */}
@@ -931,29 +1005,37 @@ const styles = StyleSheet.create({
     color: COLORS.textDarkSecondary,
     marginBottom: 18,
   },
-  milestonesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 16,
+  carouselWrapper: {
+    marginHorizontal: -22,
+    marginBottom: 20,
+    marginTop: 8,
+    height: 225,
+  },
+  carouselContentContainer: {
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    gap: SLOT_GAP,
+  },
+  carouselCardWrapper: {
+    width: SLOT_CARD_WIDTH,
+    height: SLOT_CARD_HEIGHT,
   },
   milestoneSlot: {
-    flex: 1,
-    height: 118,
+    width: '100%',
+    height: '100%',
     backgroundColor: COLORS.white,
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: 'rgba(51, 16, 5, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    ...SHADOWS.sm,
+    ...SHADOWS.md,
   },
   milestoneSlotCompleted: {
-    borderWidth: 2,
     borderColor: COLORS.accent,
     backgroundColor: COLORS.cardBg,
-    ...SHADOWS.md,
+    ...SHADOWS.lg,
   },
   milestoneThumbWrapper: {
     width: '100%',
@@ -967,28 +1049,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  milestoneSlotBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.pill,
+    zIndex: 2,
+  },
+  milestoneSlotBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   milestoneTapHint: {
     position: 'absolute',
-    bottom: 6,
-    right: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   milestoneCheckBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 10,
+    right: 10,
     backgroundColor: COLORS.accent,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
     ...SHADOWS.sm,
+  },
+  milestoneFooterOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    zIndex: 1,
+  },
+  milestoneFooterHandle: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   milestoneEmptyTrigger: {
     flex: 1,
@@ -996,26 +1110,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    padding: 8,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
   },
   milestoneNumberBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.accent,
     alignItems: 'center',
     justifyContent: 'center',
     ...SHADOWS.sm,
   },
   milestoneNumberText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '900',
     color: COLORS.primaryText,
   },
   milestoneSlotLabel: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.textDark,
+  },
+  milestoneSlotSubLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textDarkSecondary,
+    textAlign: 'center',
   },
   progressTrackBg: {
     width: '100%',
