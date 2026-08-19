@@ -98,7 +98,6 @@ const SLOT_CARD_HEIGHT = 195;
 const SLOT_GAP = 14;
 const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
 const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 40 - SLOT_CARD_WIDTH) / 2);
-const SNAP_OFFSETS = [0, 1, 2].map((i) => i * SLOT_ITEM_SIZE);
 
 interface SlotCarouselItemProps {
   idx: number;
@@ -165,7 +164,13 @@ function SlotCarouselItem({
   });
 
   return (
-    <AnimatedReanimated.View style={[styles.carouselCardWrapper, animatedStyle]}>
+    <AnimatedReanimated.View
+      style={[
+        styles.carouselCardWrapper,
+        { marginRight: index === 2 ? 0 : SLOT_GAP },
+        animatedStyle,
+      ]}
+    >
       <View
         style={[
           styles.milestoneSlot,
@@ -426,15 +431,14 @@ export default function SharePage({
               keyExtractor={(item) => item.toString()}
               horizontal
               showsHorizontalScrollIndicator={false}
-              snapToInterval={SLOT_ITEM_SIZE}
+              snapToInterval={SLOT_ITEM_SIZE + SLOT_GAP+ 20}
               snapToAlignment="center"
               decelerationRate="fast"
-              disableIntervalMomentum={true}
-              nestedScrollEnabled
               contentContainerStyle={[
                 styles.carouselContentContainer,
                 { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
               ]}
+              
               onScroll={onCarouselScroll}
               scrollEventThrottle={16}
               renderItem={({ item: idx, index }) => (
@@ -1067,7 +1071,6 @@ const styles = StyleSheet.create({
   },
   carouselContentContainer: {
     alignItems: 'center',
-    gap: SLOT_GAP,
   },
   carouselCardWrapper: {
     width: SLOT_CARD_WIDTH,
