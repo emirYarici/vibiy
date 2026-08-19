@@ -98,6 +98,7 @@ const SLOT_CARD_HEIGHT = 195;
 const SLOT_GAP = 14;
 const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
 const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 84 - SLOT_CARD_WIDTH) / 2);
+const SNAP_OFFSETS = [0, 1, 2].map((i) => i * SLOT_ITEM_SIZE);
 
 interface SlotCarouselItemProps {
   idx: number;
@@ -425,15 +426,9 @@ export default function SharePage({
               keyExtractor={(item) => item.toString()}
               horizontal
               showsHorizontalScrollIndicator={false}
-              snapToInterval={SLOT_ITEM_SIZE}
-              snapToAlignment="center"
+              snapToOffsets={SNAP_OFFSETS}
               decelerationRate="fast"
-              disableIntervalMomentum={true}
-              getItemLayout={(_, index) => ({
-                length: SLOT_ITEM_SIZE,
-                offset: SLOT_ITEM_SIZE * index,
-                index,
-              })}
+              nestedScrollEnabled
               contentContainerStyle={[
                 styles.carouselContentContainer,
                 { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
