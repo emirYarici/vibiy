@@ -84,10 +84,11 @@ function getOrdinal(n: number): string {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SLOT_CARD_WIDTH = 165;
-const SLOT_CARD_HEIGHT = 210;
+const SLOT_CARD_WIDTH = 175;
+const SLOT_CARD_HEIGHT = 215;
 const SLOT_GAP = 14;
 const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
+const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 84 - SLOT_CARD_WIDTH) / 2);
 
 interface SharePageProps {
   session?: any;
@@ -282,8 +283,18 @@ export default function SharePage({
               horizontal
               showsHorizontalScrollIndicator={false}
               snapToInterval={SLOT_ITEM_SIZE}
+              snapToAlignment="center"
               decelerationRate="fast"
-              contentContainerStyle={styles.carouselContentContainer}
+              disableIntervalMomentum={true}
+              getItemLayout={(_, index) => ({
+                length: SLOT_ITEM_SIZE,
+                offset: SLOT_ITEM_SIZE * index,
+                index,
+              })}
+              contentContainerStyle={[
+                styles.carouselContentContainer,
+                { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
+              ]}
               onScroll={Animated.event(
                 [{ nativeEvent: { contentOffset: { x: slotScrollX } } }],
                 { useNativeDriver: true }
@@ -307,7 +318,13 @@ export default function SharePage({
 
                 const rotateY = slotScrollX.interpolate({
                   inputRange,
-                  outputRange: ['-18deg', '0deg', '18deg'],
+                  outputRange: ['-22deg', '0deg', '22deg'],
+                  extrapolate: 'clamp',
+                });
+
+                const rotateZ = slotScrollX.interpolate({
+                  inputRange,
+                  outputRange: ['-6deg', '0deg', '6deg'],
                   extrapolate: 'clamp',
                 });
 
@@ -327,6 +344,7 @@ export default function SharePage({
                           { perspective: 800 },
                           { scale },
                           { rotateY },
+                          { rotate: rotateZ },
                         ],
                       },
                     ]}
@@ -1012,7 +1030,6 @@ const styles = StyleSheet.create({
     height: 225,
   },
   carouselContentContainer: {
-    paddingHorizontal: 22,
     alignItems: 'center',
     gap: SLOT_GAP,
   },
