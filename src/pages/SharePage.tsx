@@ -96,9 +96,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLOT_CARD_WIDTH = 160;
 const SLOT_CARD_HEIGHT = 195;
 const SLOT_GAP = 14;
-const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH;
+const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
 const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 40 - SLOT_CARD_WIDTH) / 2);
-const SNAP_OFFSETS = [0, 1, 2].map((i) => i * SLOT_ITEM_SIZE + (i-1)*(SLOT_GAP/2));
+const SNAP_OFFSETS = [0, 1, 2].map((i) => i * SLOT_ITEM_SIZE);
 
 interface SlotCarouselItemProps {
   idx: number;
