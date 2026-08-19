@@ -11,6 +11,8 @@ import {
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import BottomSheet, { BottomSheetView, BottomSheetTextInput, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 
+import { Eye, EyeOff } from 'lucide-react-native';
+
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, COMMON_STYLES, RADIUS, SHADOWS } from '../shared/theme';
 import { LoginProps } from '../shared/types';
@@ -19,6 +21,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
   const [signingIn, setSigningIn] = useState(false);
   const [emailText, setEmailText] = useState('');
   const [passwordText, setPasswordText] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [emailSigningIn, setEmailSigningIn] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -295,16 +298,29 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
 
           <View style={styles.sheetInputGroup}>
             <Text style={styles.sheetLabel}>Password</Text>
-            <BottomSheetTextInput
-              style={styles.sheetInput}
-              placeholder="••••••••"
-              placeholderTextColor={COLORS.textDarkSecondary}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={passwordText}
-              onChangeText={setPasswordText}
-            />
+            <View style={styles.passwordInputContainer}>
+              <BottomSheetTextInput
+                style={[styles.sheetInput, styles.passwordInput]}
+                placeholder="••••••••"
+                placeholderTextColor={COLORS.textDarkSecondary}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                value={passwordText}
+                onChangeText={setPasswordText}
+              />
+              <TouchableOpacity
+                style={styles.eyeIconButton}
+                onPress={() => setShowPassword((prev) => !prev)}
+                activeOpacity={0.7}
+              >
+                {showPassword ? (
+                  <EyeOff size={20} color={COLORS.textDarkSecondary} />
+                ) : (
+                  <Eye size={20} color={COLORS.textDarkSecondary} />
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
 
           {emailSigningIn ? (
@@ -454,6 +470,21 @@ const styles = StyleSheet.create({
     height: 50,
     borderWidth: 1,
     borderColor: 'rgba(94, 88, 115, 0.15)',
+  },
+  passwordInputContainer: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeIconButton: {
+    position: 'absolute',
+    right: 14,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
   },
   sheetSubmitBtn: {
     height: 52,

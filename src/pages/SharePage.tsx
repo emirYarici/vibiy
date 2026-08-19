@@ -28,6 +28,7 @@ import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
 import { CONFIG } from '../shared/config';
 import SkeletonImage from '../components/SkeletonImage';
+import VideoAnalyzingOverlay from '../components/VideoAnalyzingOverlay';
 
 const getInstagramThumbnail = (url: string) => {
   if (!url) return null;
@@ -71,310 +72,6 @@ const InstagramThumbnail = ({
 };
 
 import { useShareHistoryQuery, useProcessVideoMutation, useDeleteShareHistoryMutation } from '../shared/queries/useShareHistory';
-
-// ── Loader Overlay ────────────────────────────────────────────────────────────
-const LOADING_MESSAGES = [
-  'Fetching reel metadata...',
-  'Analyzing your vibe...',
-  'Running AI on content...',
-  'Computing taste vectors...',
-  'Almost there...',
-];
-
-function AnalyzingOverlay({ visible }: { visible: boolean }) {
-  const spinAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rippleAnim = useRef(new Animated.Value(1)).current;
-  const rippleOpacity = useRef(new Animated.Value(0.45)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const textFadeAnim = useRef(new Animated.Value(1)).current;
-  const [msgIndex, setMsgIndex] = useState(0);
-
-  useEffect(() => {
-    if (visible) {
-      // Fade in modal backdrop & card
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 250,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }).start();
-
-      // Smooth continuous spin ring
-      const spinLoop = Animated.loop(
-        Animated.timing(spinAnim, {
-          toValue: 1,
-          duration: 1300,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      );
-      spinLoop.start();
-
-      // Subtle breathing pulse for the center circle
-      const pulseLoop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.08,
-            duration: 800,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulseLoop.start();
-
-      // Expanding concentric ripple wave
-      const rippleLoop = Animated.loop(
-        Animated.parallel([
-          Animated.sequence([
-            Animated.timing(rippleAnim, {
-              toValue: 1.45,
-              duration: 1600,
-              easing: Easing.out(Easing.ease),
-              useNativeDriver: true,
-            }),
-            Animated.timing(rippleAnim, {
-              toValue: 1,
-              duration: 0,
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.sequence([
-            Animated.timing(rippleOpacity, {
-              toValue: 0,
-              duration: 1600,
-              easing: Easing.out(Easing.ease),
-              useNativeDriver: true,
-            }),
-            Animated.timing(rippleOpacity, {
-              toValue: 0.4,
-              duration: 0,
-              useNativeDriver: true,
-            }),
-          ]),
-        ])
-      );
-      rippleLoop.start();
-
-      // Cycle messages with crossfade
-      setMsgIndex(0);
-      textFadeAnim.setValue(1);
-      const interval = setInterval(() => {
-        Animated.timing(textFadeAnim, {
-          toValue: 0,
-          duration: 180,
-          useNativeDriver: true,
-        }).start(() => {
-          setMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length);
-          Animated.timing(textFadeAnim, {
-            toValue: 1,
-            duration: 220,
-            useNativeDriver: true,
-          }).start();
-        });
-      }, 2200);
-
-      return () => {
-        clearInterval(interval);
-        spinLoop.stop();
-        pulseLoop.stop();
-        rippleLoop.stop();
-      };
-    } else {
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-      spinAnim.stopAnimation();
-      pulseAnim.stopAnimation();
-      rippleAnim.stopAnimation();
-    }
-  }, [visible]);
-
-  const spin = spinAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
-      <Animated.View style={[loaderStyles.backdrop, { opacity: fadeAnim }]}>
-        <View style={loaderStyles.card}>
-          {/* Concentric Loader Center */}
-          <View style={loaderStyles.loaderContainer}>
-            {/* Outer Radiant Ripple Wave */}
-            <Animated.View
-              style={[
-                loaderStyles.ripple,
-                {
-                  transform: [{ scale: rippleAnim }],
-                  opacity: rippleOpacity,
-                },
-              ]}
-            />
-
-            {/* Orbiting Track (Background subtle ring) */}
-            <View style={loaderStyles.ringTrack} />
-
-            {/* Rotating Active Loader Ring */}
-            <Animated.View
-              style={[
-                loaderStyles.ring,
-                {
-                  transform: [{ rotate: spin }],
-                },
-              ]}
-            />
-
-            {/* Inner Pulsing Circle */}
-            <Animated.View
-              style={[
-                loaderStyles.orb,
-                {
-                  transform: [{ scale: pulseAnim }],
-                },
-              ]}
-            >
-              <Sparkles size={28} color={COLORS.textDark} />
-            </Animated.View>
-          </View>
-
-          {/* Typography */}
-          <Text style={loaderStyles.title}>Analyzing Reel</Text>
-          <Animated.View style={[loaderStyles.subtitleContainer, { opacity: textFadeAnim }]}>
-            <Text style={loaderStyles.subtitle}>{LOADING_MESSAGES[msgIndex]}</Text>
-          </Animated.View>
-
-          {/* Step Progress Dots */}
-          <View style={loaderStyles.dotsContainer}>
-            {LOADING_MESSAGES.map((_, idx) => (
-              <View
-                key={idx}
-                style={[
-                  loaderStyles.dot,
-                  idx === msgIndex && loaderStyles.dotActive,
-                ]}
-              />
-            ))}
-          </View>
-        </View>
-      </Animated.View>
-    </Modal>
-  );
-}
-
-const loaderStyles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  card: {
-    width: 260,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
-    borderRadius: 28,
-    backgroundColor: COLORS.cardBgIvory,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.25,
-    shadowRadius: 32,
-    elevation: 20,
-  },
-  loaderContainer: {
-    width: 104,
-    height: 104,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  ripple: {
-    position: 'absolute',
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: COLORS.accent,
-  },
-  ringTrack: {
-    position: 'absolute',
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    borderWidth: 3.5,
-    borderColor: 'rgba(0, 0, 0, 0.07)',
-  },
-  ring: {
-    position: 'absolute',
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    borderWidth: 3.5,
-    borderColor: 'transparent',
-    borderTopColor: COLORS.textDark,
-    borderRightColor: COLORS.accent,
-  },
-  orb: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: COLORS.textDark,
-    marginBottom: 6,
-    letterSpacing: -0.3,
-  },
-  subtitleContainer: {
-    height: 38,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 13.5,
-    color: COLORS.textDarkSecondary,
-    fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 18,
-    paddingHorizontal: 8,
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: 'rgba(0, 0, 0, 0.12)',
-  },
-  dotActive: {
-    width: 18,
-    backgroundColor: COLORS.textDark,
-  },
-});
 
 // ── Ordinal helper ────────────────────────────────────────────────────────────
 function getOrdinal(n: number): string {
@@ -528,7 +225,7 @@ export default function SharePage({
 
   return (
     <>
-      <AnalyzingOverlay visible={isProcessing} />
+      <VideoAnalyzingOverlay visible={isProcessing} />
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         {/* 🎯 "3 Videos to Unlock" Daily Progress Bar Card */}
         <View style={[styles.progressCard, isDropUnlocked && styles.progressCardUnlocked]}>
@@ -1097,6 +794,11 @@ const confirmStyles = StyleSheet.create({
     fontWeight: '600',
   },
   btnRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  actions: {
     flexDirection: 'row',
     gap: 12,
     width: '100%',

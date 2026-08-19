@@ -316,13 +316,12 @@ export default function AppContainer() {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        console.log('🔍 [AUTH] Clearing session for testing...');
-        await supabase.auth.signOut();
-        await AsyncStorage.removeItem('@guest_session');
-        console.log('🔍 [AUTH] Session cleared successfully!');
-        setSession(null);
+        console.log('🔍 [AUTH] Restoring Auth Session...');
+        const { data: { session: supabaseSession } } = await supabase.auth.getSession();
+        console.log('🔍 [AUTH] Session restored:', supabaseSession ? `User ID: ${supabaseSession.user.id}` : 'No active session');
+        setSession(supabaseSession);
       } catch (err) {
-        console.error('❌ [AUTH] Failed to clear session:', err);
+        console.error('❌ [AUTH] Failed to restore session:', err);
       } finally {
         setLoading(false);
       }
