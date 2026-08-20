@@ -414,11 +414,24 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
           } catch (dlErr) {
             console.warn('⚠️ Direct image GET failed (403/Forbidden), running Python curl_cffi image downloader fallback...');
             
-            // Attempt 2: Use Python curl_cffi script to bypass Instagram 403 TLS Fingerprinting
+            // Attempt 2: Re-scrape fresh CDN thumbnail URL via Python scraper script
+            let targetDownloadUrl = rawThumbnailUrl;
+            try {
+              const scraperOutput = await runScraper(cleanUrl);
+              const scraperData = JSON.parse(scraperOutput);
+              if (scraperData && scraperData.thumbnail_url) {
+                targetDownloadUrl = scraperData.thumbnail_url;
+                console.log(`[STORAGE_DEBUG] Freshly scraped CDN thumbnail URL: ${targetDownloadUrl}`);
+              }
+            } catch (scrapeErr) {
+              console.warn('⚠️ Re-scraping CDN URL failed, proceeding with raw URL:', scrapeErr.message);
+            }
+
+            // Attempt 3: Download binary stream via Python curl_cffi (impersonate="chrome")
             try {
               const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg")}))`;
               const execPromise = new Promise((resolve) => {
-                execFile('python3', ['-c', pythonScript, rawThumbnailUrl], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                execFile('python3', ['-c', pythonScript, targetDownloadUrl], { maxBuffer: 15 * 1024 * 1024 }, (err, stdout) => {
                   if (err) return resolve(null);
                   try {
                     const parsed = JSON.parse(stdout.trim());
