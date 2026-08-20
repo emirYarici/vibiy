@@ -392,40 +392,66 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       if (rawThumbnailUrl && hasNewColumns) {
         try {
           console.log(`Downloading thumbnail from CDN: ${rawThumbnailUrl}`);
-          const imageRes = await axios.get(rawThumbnailUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-              'Referer': 'https://www.instagram.com/'
-            }
-          });
-          
-          const buffer = Buffer.from(imageRes.data);
-          const shortcodeMatch = cleanUrl.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
-          const shortcode = shortcodeMatch ? shortcodeMatch[1] : `temp_${Date.now()}`;
-          const storagePath = `${shortcode}.jpg`;
+          let buffer = null;
+          let contentType = 'image/jpeg';
 
-          console.log(`Uploading thumbnail to Supabase Storage bucket 'reels': ${storagePath}`);
-          const { error: uploadError } = await supabase.storage
-            .from('reels')
-            .upload(storagePath, buffer, {
-              contentType: imageRes.headers['content-type'] || 'image/jpeg',
-              upsert: true
+          try {
+            const imageRes = await axios.get(rawThumbnailUrl, {
+              responseType: 'arraybuffer',
+              maxRedirects: 5,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                'Referer': 'https://www.instagram.com/'
+              }
             });
+            buffer = Buffer.from(imageRes.data);
+            contentType = imageRes.headers['content-type'] || 'image/jpeg';
+          } catch (dlErr) {
+            console.warn('⚠️ Direct image GET failed, trying Python scraper thumbnail extraction:', dlErr.message);
+            const scraperOutput = await runScraper(url);
+            const data = JSON.parse(scraperOutput);
+            if (data.success && data.thumbnail_url) {
+              const imageRes = await axios.get(data.thumbnail_url, {
+                responseType: 'arraybuffer',
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': 'https://www.instagram.com/'
+                }
+              });
+              buffer = Buffer.from(imageRes.data);
+              contentType = imageRes.headers['content-type'] || 'image/jpeg';
+            }
+          }
 
-          if (uploadError) {
-            console.warn('⚠️ Supabase Storage upload error:', uploadError.message);
-            finalThumbnailUrl = rawThumbnailUrl; // Fallback to raw CDN URL
-          } else {
-            const { data: { publicUrl } } = supabase.storage
+          if (buffer) {
+            const shortcodeMatch = cleanUrl.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
+            const shortcode = shortcodeMatch ? shortcodeMatch[1] : `temp_${Date.now()}`;
+            const storagePath = `${shortcode}.jpg`;
+
+            console.log(`Uploading thumbnail to Supabase Storage bucket 'reels': ${storagePath}`);
+            const { error: uploadError } = await supabase.storage
               .from('reels')
-              .getPublicUrl(storagePath);
-            finalThumbnailUrl = publicUrl;
-            console.log(`✅ Permanent thumbnail URL saved to Supabase storage: ${finalThumbnailUrl}`);
+              .upload(storagePath, buffer, {
+                contentType,
+                upsert: true
+              });
+
+            if (uploadError) {
+              console.warn('⚠️ Supabase Storage upload error:', uploadError.message);
+              finalThumbnailUrl = rawThumbnailUrl;
+            } else {
+              const { data: { publicUrl } } = supabase.storage
+                .from('reels')
+                .getPublicUrl(storagePath);
+              finalThumbnailUrl = publicUrl;
+              console.log(`✅ Permanent thumbnail URL saved to Supabase storage: ${finalThumbnailUrl}`);
+            }
+          } else {
+            finalThumbnailUrl = rawThumbnailUrl;
           }
         } catch (err) {
-          console.warn('⚠️ Failed to store thumbnail to Supabase storage, using direct media URL fallback:', err.message);
+          console.warn('⚠️ Failed to store thumbnail to Supabase storage:', err.message);
           finalThumbnailUrl = rawThumbnailUrl;
         }
       } else {
