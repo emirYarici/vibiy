@@ -397,6 +397,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
           let buffer = null;
           let contentType = 'image/jpeg';
 
+          // Attempt 1: Direct GET with Chrome Headers
           try {
             const imageRes = await axios.get(rawThumbnailUrl, {
               responseType: 'arraybuffer',
@@ -409,43 +410,40 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
             });
             buffer = Buffer.from(imageRes.data);
             contentType = imageRes.headers['content-type'] || 'image/jpeg';
-            console.log(`[STORAGE_DEBUG] Downloaded image buffer size: ${buffer.length} bytes`);
+            console.log(`[STORAGE_DEBUG] Direct download succeeded! Buffer size: ${buffer.length} bytes`);
           } catch (dlErr) {
-            console.warn('⚠️ Direct image GET failed (403/Forbidden), trying public oEmbed/HTML extraction fallback:', dlErr.message);
+            console.warn('⚠️ Direct image GET failed (403/Forbidden), running Python curl_cffi image downloader fallback...');
             
-            // Try fetching media public image endpoint
+            // Attempt 2: Use Python curl_cffi script to bypass Instagram 403 TLS Fingerprinting
             try {
-              const cleanBase = cleanUrl.endsWith('/') ? cleanUrl : `${cleanUrl}/`;
-              const mediaUrl = `${cleanBase}media/?size=l`;
-              console.log(`[STORAGE_DEBUG] Retrying download via Instagram media endpoint: ${mediaUrl}`);
-              const mediaRes = await axios.get(mediaUrl, {
-                responseType: 'arraybuffer',
-                maxRedirects: 5,
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-                  'Accept': 'image/*,*/*',
-                  'Referer': 'https://www.instagram.com/'
-                }
-              });
-              buffer = Buffer.from(mediaRes.data);
-              contentType = mediaRes.headers['content-type'] || 'image/jpeg';
-              console.log(`[STORAGE_DEBUG] Media endpoint download succeeded! Buffer size: ${buffer.length} bytes`);
-            } catch (mediaErr) {
-              console.warn('⚠️ Media endpoint failed, running Python scraper fallback:', mediaErr.message);
-              const scraperOutput = await runScraper(url);
-              const data = JSON.parse(scraperOutput);
-              if (data.success && data.thumbnail_url) {
-                const imageRes = await axios.get(data.thumbnail_url, {
-                  responseType: 'arraybuffer',
-                  headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Referer': 'https://www.instagram.com/'
+              const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg")}))`;
+              const execPromise = new Promise((resolve) => {
+                execFile('python3', ['-c', pythonScript, rawThumbnailUrl], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout) => {
+                  if (err) return resolve(null);
+                  try {
+                    const parsed = JSON.parse(stdout.trim());
+                    if (parsed.success && parsed.data) {
+                      resolve({
+                        buffer: Buffer.from(parsed.data, 'base64'),
+                        contentType: parsed.type || 'image/jpeg'
+                      });
+                    } else {
+                      resolve(null);
+                    }
+                  } catch (_) {
+                    resolve(null);
                   }
                 });
-                buffer = Buffer.from(imageRes.data);
-                contentType = imageRes.headers['content-type'] || 'image/jpeg';
-                console.log(`[STORAGE_DEBUG] Scraper fallback downloaded image buffer size: ${buffer.length} bytes`);
+              });
+
+              const pyResult = await execPromise;
+              if (pyResult && pyResult.buffer) {
+                buffer = pyResult.buffer;
+                contentType = pyResult.contentType;
+                console.log(`[STORAGE_DEBUG] Python curl_cffi image download succeeded! Buffer size: ${buffer.length} bytes`);
               }
+            } catch (pyErr) {
+              console.warn('⚠️ Python curl_cffi image download failed:', pyErr.message);
             }
           }
 
