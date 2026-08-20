@@ -124,6 +124,9 @@ export function usePartnerShareHistory(partnerId?: string, isDemoMode = false) {
   });
 }
 
+import { extractInstagramMetadataOnClient } from '../helpers/instagramScraper';
+import { ProcessVideoPayload } from '../types';
+
 export function useProcessVideoMutation(session?: any) {
   const queryClient = useQueryClient();
 
@@ -142,13 +145,30 @@ export function useProcessVideoMutation(session?: any) {
         if (parts[1]) shortcode = parts[1].split('/')[0] || 'N/A';
       }
 
+      // Try client-side extraction to bypass datacenter proxy bans
+      let clientMetadata: ProcessVideoPayload['clientMetadata'] = undefined;
+      try {
+        const clientExtractResult = await extractInstagramMetadataOnClient(url);
+        if (clientExtractResult.success) {
+          clientMetadata = {
+            thumbnail_url: clientExtractResult.thumbnail_url,
+            summary: clientExtractResult.summary,
+            username: clientExtractResult.username,
+          };
+          console.log('📱 Successfully extracted Instagram metadata on client side:', clientMetadata);
+        }
+      } catch (err: any) {
+        console.warn('Client extraction failed, proceeding with server fallback:', err.message);
+      }
+
       const baseUrl = CONFIG.API_BASE_URL;
-      const requestBody = {
+      const requestBody: ProcessVideoPayload = {
         url,
         type,
         shortcode,
         userId: session?.user?.id,
         auth_id: session?.user?.id,
+        clientMetadata,
       };
 
       const response = await fetch(`${baseUrl}/api/process-video`, {

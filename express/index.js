@@ -301,30 +301,45 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
         }
       }
     } else {
-      console.log('Video is new. Scraping details and generating embedding...');
+      console.log('Video is new. Processing details and generating embedding...');
       
-      // 2. Scrape details using Python scraper
-      const scraperOutput = await runScraper(url);
-      const data = JSON.parse(scraperOutput);
+      const clientMetadata = req.body.clientMetadata;
+      let rawSummary = 'Instagram Reel';
+      let rawThumbnailUrl = null;
+      let usernameCandidate = null;
 
-      if (!data.success) {
-        return res.status(400).json({ success: false, error: data.error || 'Failed to scrape video.' });
+      if (clientMetadata && (clientMetadata.thumbnail_url || clientMetadata.summary || clientMetadata.username)) {
+        console.log('📱 Using client-extracted metadata (bypassing server scraper/proxy limits)...');
+        rawSummary = clientMetadata.summary || 'Instagram Reel';
+        rawThumbnailUrl = clientMetadata.thumbnail_url || null;
+        usernameCandidate = clientMetadata.username || null;
+      } else {
+        console.log('🕷️ Client metadata not present. Running server Python scraper fallback...');
+        const scraperOutput = await runScraper(url);
+        const data = JSON.parse(scraperOutput);
+
+        if (!data.success) {
+          return res.status(400).json({ success: false, error: data.error || 'Failed to scrape video.' });
+        }
+
+        rawSummary = data.summary || 'Instagram Reel';
+        rawThumbnailUrl = data.thumbnail_url || null;
+        usernameCandidate = data.username || null;
       }
 
-      const rawSummary = data.summary || 'Instagram Reel';
-      console.log(`Raw scraped caption: "${rawSummary}"`);
+      console.log(`Raw caption: "${rawSummary}"`);
 
       // Generate AI Summary with Gemini
       finalSummary = await generateAiSummary(rawSummary);
       console.log(`✨ Gemini AI Summary: "${finalSummary}"`);
       
-      finalUsername = data.username || null;
+      finalUsername = usernameCandidate;
       
       // 3. Download and upload thumbnail to Supabase Storage if available
-      if (data.thumbnail_url && hasNewColumns) {
+      if (rawThumbnailUrl && hasNewColumns) {
         try {
-          console.log(`Downloading thumbnail from: ${data.thumbnail_url}`);
-          const imageRes = await axios.get(data.thumbnail_url, {
+          console.log(`Downloading thumbnail from CDN: ${rawThumbnailUrl}`);
+          const imageRes = await axios.get(rawThumbnailUrl, {
             responseType: 'arraybuffer',
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -348,7 +363,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
 
           if (uploadError) {
             console.warn('⚠️ Supabase Storage upload error:', uploadError.message);
-            finalThumbnailUrl = data.thumbnail_url; // Fallback to raw CDN URL
+            finalThumbnailUrl = rawThumbnailUrl; // Fallback to raw CDN URL
           } else {
             const { data: { publicUrl } } = supabase.storage
               .from('reels')
@@ -358,10 +373,10 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
           }
         } catch (err) {
           console.warn('⚠️ Failed to store thumbnail to Supabase storage, using raw URL:', err.message);
-          finalThumbnailUrl = data.thumbnail_url;
+          finalThumbnailUrl = rawThumbnailUrl;
         }
       } else {
-        finalThumbnailUrl = data.thumbnail_url || null;
+        finalThumbnailUrl = rawThumbnailUrl;
       }
 
       // 4. Generate Gemini vector embedding with 3072 padding

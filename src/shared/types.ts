@@ -10,6 +10,19 @@ export interface ShareHistoryItem {
   created_at?: string;
 }
 
+export interface ProcessVideoPayload {
+  url: string;
+  type?: 'post' | 'reel' | 'other';
+  shortcode?: string;
+  userId?: string;
+  auth_id?: string;
+  clientMetadata?: {
+    thumbnail_url?: string;
+    summary?: string;
+    username?: string;
+  };
+}
+
 export interface MatchProfile {
   id: string;
   name: string;
