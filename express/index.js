@@ -402,7 +402,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
               responseType: 'arraybuffer',
               maxRedirects: 5,
               headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
                 'Referer': 'https://www.instagram.com/'
               }
@@ -411,20 +411,41 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
             contentType = imageRes.headers['content-type'] || 'image/jpeg';
             console.log(`[STORAGE_DEBUG] Downloaded image buffer size: ${buffer.length} bytes`);
           } catch (dlErr) {
-            console.warn('⚠️ Direct image GET failed, trying Python scraper thumbnail extraction:', dlErr.message);
-            const scraperOutput = await runScraper(url);
-            const data = JSON.parse(scraperOutput);
-            if (data.success && data.thumbnail_url) {
-              const imageRes = await axios.get(data.thumbnail_url, {
+            console.warn('⚠️ Direct image GET failed (403/Forbidden), trying public oEmbed/HTML extraction fallback:', dlErr.message);
+            
+            // Try fetching media public image endpoint
+            try {
+              const cleanBase = cleanUrl.endsWith('/') ? cleanUrl : `${cleanUrl}/`;
+              const mediaUrl = `${cleanBase}media/?size=l`;
+              console.log(`[STORAGE_DEBUG] Retrying download via Instagram media endpoint: ${mediaUrl}`);
+              const mediaRes = await axios.get(mediaUrl, {
                 responseType: 'arraybuffer',
+                maxRedirects: 5,
                 headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+                  'Accept': 'image/*,*/*',
                   'Referer': 'https://www.instagram.com/'
                 }
               });
-              buffer = Buffer.from(imageRes.data);
-              contentType = imageRes.headers['content-type'] || 'image/jpeg';
-              console.log(`[STORAGE_DEBUG] Scraper fallback downloaded image buffer size: ${buffer.length} bytes`);
+              buffer = Buffer.from(mediaRes.data);
+              contentType = mediaRes.headers['content-type'] || 'image/jpeg';
+              console.log(`[STORAGE_DEBUG] Media endpoint download succeeded! Buffer size: ${buffer.length} bytes`);
+            } catch (mediaErr) {
+              console.warn('⚠️ Media endpoint failed, running Python scraper fallback:', mediaErr.message);
+              const scraperOutput = await runScraper(url);
+              const data = JSON.parse(scraperOutput);
+              if (data.success && data.thumbnail_url) {
+                const imageRes = await axios.get(data.thumbnail_url, {
+                  responseType: 'arraybuffer',
+                  headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': 'https://www.instagram.com/'
+                  }
+                });
+                buffer = Buffer.from(imageRes.data);
+                contentType = imageRes.headers['content-type'] || 'image/jpeg';
+                console.log(`[STORAGE_DEBUG] Scraper fallback downloaded image buffer size: ${buffer.length} bytes`);
+              }
             }
           }
 
