@@ -19,6 +19,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Film, Camera, Play, Sparkles, Check, Flame, ExternalLink, XCircle, HelpCircle, Zap, X } from 'lucide-react-native';
+import Svg, { Circle } from 'react-native-svg';
 import {
   BottomSheetModal,
   BottomSheetView,
@@ -44,7 +45,9 @@ import ShareSuccessModal from '../components/ShareSuccessModal';
 
 const getInstagramThumbnail = (url: string) => {
   if (!url) return null;
-  return `${CONFIG.API_BASE_URL}/api/thumbnail?url=${encodeURIComponent(url)}`;
+  const baseUrl = url.split('?')[0];
+  const cleanUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return `${cleanUrl}media/?size=l`;
 };
 
 const InstagramThumbnail = ({
@@ -60,10 +63,45 @@ const InstagramThumbnail = ({
   height?: number;
   borderRadius?: number;
 }) => {
+  const [useProxyFallback, setUseProxyFallback] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const thumbnailUrl = !hasError
-    ? directThumbnailUrl || (url ? getInstagramThumbnail(url) : null)
-    : null;
+
+  // Filter out expired CDN URLs (containing scontent or instagram CDN tokens that expire after hours)
+  const isExpiredCdn = directThumbnailUrl && (
+    directThumbnailUrl.includes('scontent') ||
+    directThumbnailUrl.includes('_nc_cat') ||
+    directThumbnailUrl.includes('fbcdn')
+  );
+
+  // Check if thumbnail_url comes from Supabase Storage bucket ('reels' or 'profiles')
+  const isSupabaseStorageUrl = directThumbnailUrl && (
+    directThumbnailUrl.includes('supabase.co/storage') ||
+    directThumbnailUrl.includes('/storage/v1/object/public/')
+  );
+
+  // 1. First Priority: Permanent Supabase Storage public URL saved in DB
+  // 2. Second Priority: Direct Instagram public media URL (${url}/media/?size=l)
+  // 3. Third Priority: Express server thumbnail proxy stream fallback
+  let thumbnailUrl: string | null = null;
+  if (!hasError) {
+    if (isSupabaseStorageUrl && !useProxyFallback) {
+      thumbnailUrl = directThumbnailUrl;
+    } else if (url && !useProxyFallback) {
+      thumbnailUrl = getInstagramThumbnail(url);
+    } else if (directThumbnailUrl && !isExpiredCdn) {
+      thumbnailUrl = directThumbnailUrl;
+    } else if (url) {
+      thumbnailUrl = `${CONFIG.API_BASE_URL}/api/thumbnail?url=${encodeURIComponent(url)}`;
+    }
+  }
+
+  console.log('[DEBUG_THUMBNAIL] Rendering InstagramThumbnail:', {
+    url,
+    directThumbnailUrl,
+    computedThumbnailUrl: thumbnailUrl,
+    useProxyFallback,
+    hasError,
+  });
 
   return (
     <View style={[styles.thumbContainer, { width, height, borderRadius }]}>
@@ -72,7 +110,17 @@ const InstagramThumbnail = ({
           source={{ uri: thumbnailUrl }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
-          onError={() => setHasError(true)}
+          onLoadStart={() => console.log('[DEBUG_THUMBNAIL] Image load started:', thumbnailUrl)}
+          onLoadEnd={() => console.log('[DEBUG_THUMBNAIL] Image load succeeded:', thumbnailUrl)}
+          onError={(e) => {
+            console.error('[DEBUG_THUMBNAIL] Image load FAILED:', thumbnailUrl, e?.nativeEvent);
+            if (!useProxyFallback && url) {
+              console.log('[DEBUG_THUMBNAIL] Switching to Express proxy fallback for URL:', url);
+              setUseProxyFallback(true);
+            } else {
+              setHasError(true);
+            }
+          }}
         />
       ) : (
         <View style={styles.thumbFallback}>
@@ -393,7 +441,11 @@ export default function SharePage({
         onClose={() => setShowSuccessModal(false)}
         sharedCount={sharedCount}
       />
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {/* 🎯 "3 Videos to Unlock" Daily Progress Bar Card */}
         <View style={[styles.progressCard, isDropUnlocked && styles.progressCardUnlocked]}>
           <View style={styles.progressHeaderRow}>
@@ -455,9 +507,40 @@ export default function SharePage({
             />
           </View>
 
-          {/* Progress Track */}
-          <View style={styles.progressTrackBg}>
-            <View style={[styles.progressTrackFill, { width: `${progressPercent}%` }]} />
+          {/* ⭕ Clean SVG Circular Progress Ring */}
+          <View style={styles.circularProgressContainer}>
+            <View style={styles.svgCircleWrapper}>
+              <Svg width={96} height={96} viewBox="0 0 96 96">
+                {/* Background Track Circle */}
+                <Circle
+                  cx="48"
+                  cy="48"
+                  r="42"
+                  stroke="rgba(51, 16, 5, 0.1)"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                {/* Active Progress Circle Arc */}
+                <Circle
+                  cx="48"
+                  cy="48"
+                  r="42"
+                  stroke={COLORS.accent}
+                  strokeWidth="8"
+                  fill="none"
+                  strokeDasharray={2 * Math.PI * 42}
+                  strokeDashoffset={2 * Math.PI * 42 * (1 - Math.min(sharedCount, 3) / 3)}
+                  strokeLinecap="round"
+                  transform="rotate(-90 48 48)"
+                />
+              </Svg>
+              <View style={styles.svgCircleCenter}>
+                <Text style={styles.svgCircleNumber}>{Math.min(sharedCount, 3)}/3</Text>
+                <Text style={styles.svgCircleLabel}>
+                  {isDropUnlocked ? 'UNLOCKED' : 'GOAL'}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -1195,18 +1278,34 @@ const styles = StyleSheet.create({
     color: COLORS.textDarkSecondary,
     textAlign: 'center',
   },
-  progressTrackBg: {
-    width: '100%',
-    height: 8,
-    backgroundColor: 'rgba(51, 16, 5, 0.08)',
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginTop: 4,
+  circularProgressContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    marginTop: 0,
   },
-  progressTrackFill: {
-    height: '100%',
-    backgroundColor: COLORS.accent,
-    borderRadius: 4,
+  svgCircleWrapper: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  svgCircleCenter: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  svgCircleNumber: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: COLORS.textDark,
+  },
+  svgCircleLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.textDarkSecondary,
+    letterSpacing: 0.5,
   },
   glassCard: {
     backgroundColor: COLORS.cardBgIvory,

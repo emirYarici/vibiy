@@ -336,6 +336,12 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       finalUsername = usernameCandidate;
       
       // 3. Download and upload thumbnail to Supabase Storage if available
+      if (!rawThumbnailUrl) {
+        const baseUrl = cleanUrl.split('?')[0];
+        const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+        rawThumbnailUrl = `${cleanBase}media/?size=l`;
+      }
+
       if (rawThumbnailUrl && hasNewColumns) {
         try {
           console.log(`Downloading thumbnail from CDN: ${rawThumbnailUrl}`);
@@ -369,10 +375,10 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
               .from('reels')
               .getPublicUrl(storagePath);
             finalThumbnailUrl = publicUrl;
-            console.log(`✅ Permanent thumbnail URL: ${finalThumbnailUrl}`);
+            console.log(`✅ Permanent thumbnail URL saved to Supabase storage: ${finalThumbnailUrl}`);
           }
         } catch (err) {
-          console.warn('⚠️ Failed to store thumbnail to Supabase storage, using raw URL:', err.message);
+          console.warn('⚠️ Failed to store thumbnail to Supabase storage, using direct media URL fallback:', err.message);
           finalThumbnailUrl = rawThumbnailUrl;
         }
       } else {
@@ -459,12 +465,14 @@ app.get('/api/thumbnail', async (req, res) => {
     return res.status(400).send('URL query parameter is required');
   }
 
+  console.log('[EXPRESS_THUMBNAIL_REQ] Fetching thumbnail for URL:', url);
   try {
     // Scrape live to get fresh CDN image URL (avoiding expiration tokens)
     const scraperOutput = await runScraper(url);
     const data = JSON.parse(scraperOutput);
 
     if (data.success && data.thumbnail_url) {
+      console.log('[EXPRESS_THUMBNAIL_SUCCESS] Proxying Instagram CDN stream:', data.thumbnail_url);
       // Fetch the image from Facebook/Instagram CDN as a stream
       const response = await axios.get(data.thumbnail_url, {
         responseType: 'stream',
