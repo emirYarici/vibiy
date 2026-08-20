@@ -79,17 +79,15 @@ const InstagramThumbnail = ({
     directThumbnailUrl.includes('/storage/v1/object/public/')
   );
 
-  // 1. First Priority: Permanent Supabase Storage public URL saved in DB
+  // 1. First Priority: Direct Thumbnail URL from DB (Supabase Storage publicUrl or valid non-expired CDN URL)
   // 2. Second Priority: Direct Instagram public media URL (${url}/media/?size=l)
   // 3. Third Priority: Express server thumbnail proxy stream fallback
   let thumbnailUrl: string | null = null;
   if (!hasError) {
-    if (isSupabaseStorageUrl && !useProxyFallback) {
+    if (directThumbnailUrl && (!isExpiredCdn || isSupabaseStorageUrl) && !useProxyFallback) {
       thumbnailUrl = directThumbnailUrl;
     } else if (url && !useProxyFallback) {
       thumbnailUrl = getInstagramThumbnail(url);
-    } else if (directThumbnailUrl && !isExpiredCdn) {
-      thumbnailUrl = directThumbnailUrl;
     } else if (url) {
       thumbnailUrl = `${CONFIG.API_BASE_URL}/api/thumbnail?url=${encodeURIComponent(url)}`;
     }
