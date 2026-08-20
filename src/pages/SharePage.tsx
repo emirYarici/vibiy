@@ -43,13 +43,6 @@ import SkeletonImage from '../components/SkeletonImage';
 import VideoAnalyzingOverlay from '../components/VideoAnalyzingOverlay';
 import ShareSuccessModal from '../components/ShareSuccessModal';
 
-const getInstagramThumbnail = (url: string) => {
-  if (!url) return null;
-  const baseUrl = url.split('?')[0];
-  const cleanUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return `${cleanUrl}media/?size=l`;
-};
-
 const InstagramThumbnail = ({
   url,
   thumbnailUrl: directThumbnailUrl,
@@ -63,43 +56,13 @@ const InstagramThumbnail = ({
   height?: number;
   borderRadius?: number;
 }) => {
-  const [useProxyFallback, setUseProxyFallback] = useState(false);
-  const [hasError, setHasError] = useState(false);
-
-  // Filter out expired CDN URLs (containing scontent or instagram CDN tokens that expire after hours)
-  const isExpiredCdn = directThumbnailUrl && (
-    directThumbnailUrl.includes('scontent') ||
-    directThumbnailUrl.includes('_nc_cat') ||
-    directThumbnailUrl.includes('fbcdn')
-  );
-
-  // Check if thumbnail_url comes from Supabase Storage bucket ('reels' or 'profiles')
-  const isSupabaseStorageUrl = directThumbnailUrl && (
-    directThumbnailUrl.includes('supabase.co/storage') ||
-    directThumbnailUrl.includes('/storage/v1/object/public/')
-  );
-
-  // 1. First Priority: Direct Thumbnail URL from DB (Supabase Storage publicUrl or valid non-expired CDN URL)
-  // 2. Second Priority: Direct Instagram public media URL (${url}/media/?size=l)
-  // 3. Third Priority: Express server thumbnail proxy stream fallback
-  let thumbnailUrl: string | null = null;
-  if (!hasError) {
-    if (directThumbnailUrl && (!isExpiredCdn || isSupabaseStorageUrl) && !useProxyFallback) {
-      thumbnailUrl = directThumbnailUrl;
-    } else if (url && !useProxyFallback) {
-      thumbnailUrl = getInstagramThumbnail(url);
-    } else if (url) {
-      thumbnailUrl = `${CONFIG.API_BASE_URL}/api/thumbnail?url=${encodeURIComponent(url)}`;
-    }
+  // Use direct thumbnail_url from public.videos table (Supabase Storage URL)
+  // Fallback to Instagram media link if thumbnail_url is missing
+  let thumbnailUrl: string | null = directThumbnailUrl || null;
+  if (!thumbnailUrl && url) {
+    const cleanUrl = url.split('?')[0].replace(/\/$/, '');
+    thumbnailUrl = `${cleanUrl}/media/?size=l`;
   }
-
-  console.log('[DEBUG_THUMBNAIL] Rendering InstagramThumbnail:', {
-    url,
-    directThumbnailUrl,
-    computedThumbnailUrl: thumbnailUrl,
-    useProxyFallback,
-    hasError,
-  });
 
   return (
     <View style={[styles.thumbContainer, { width, height, borderRadius }]}>
@@ -110,15 +73,7 @@ const InstagramThumbnail = ({
           resizeMode="cover"
           onLoadStart={() => console.log('[DEBUG_THUMBNAIL] Image load started:', thumbnailUrl)}
           onLoadEnd={() => console.log('[DEBUG_THUMBNAIL] Image load succeeded:', thumbnailUrl)}
-          onError={(e) => {
-            console.error('[DEBUG_THUMBNAIL] Image load FAILED:', thumbnailUrl, e?.nativeEvent);
-            if (!useProxyFallback && url) {
-              console.log('[DEBUG_THUMBNAIL] Switching to Express proxy fallback for URL:', url);
-              setUseProxyFallback(true);
-            } else {
-              setHasError(true);
-            }
-          }}
+          onError={(e) => console.error('[DEBUG_THUMBNAIL] Image load FAILED:', thumbnailUrl, e?.nativeEvent)}
         />
       ) : (
         <View style={styles.thumbFallback}>
