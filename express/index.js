@@ -392,6 +392,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       console.log(`[STORAGE_DEBUG] rawThumbnailUrl: "${rawThumbnailUrl}", hasNewColumns: ${hasNewColumns}`);
 
       if (rawThumbnailUrl) {
+        rawThumbnailUrl = rawThumbnailUrl.replace(/&amp;/g, '&');
         try {
           console.log(`Downloading thumbnail from CDN: ${rawThumbnailUrl}`);
           let buffer = null;
@@ -414,13 +415,13 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
           } catch (dlErr) {
             console.warn('⚠️ Direct image GET failed (403/Forbidden), running Python curl_cffi image downloader fallback...');
             
-            // Attempt 2: Re-scrape fresh CDN thumbnail URL via Python scraper script
-            let targetDownloadUrl = rawThumbnailUrl;
+            // Unescape HTML entities in rawThumbnailUrl (&amp; -> &)
+            let targetDownloadUrl = (rawThumbnailUrl || '').replace(/&amp;/g, '&');
             try {
               const scraperOutput = await runScraper(cleanUrl);
               const scraperData = JSON.parse(scraperOutput);
               if (scraperData && scraperData.thumbnail_url) {
-                targetDownloadUrl = scraperData.thumbnail_url;
+                targetDownloadUrl = scraperData.thumbnail_url.replace(/&amp;/g, '&');
                 console.log(`[STORAGE_DEBUG] Freshly scraped CDN thumbnail URL: ${targetDownloadUrl}`);
               }
             } catch (scrapeErr) {
@@ -429,7 +430,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
 
             // Attempt 3: Download binary stream via Python curl_cffi (impersonate="chrome")
             try {
-              const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg"), "code": r.status_code}))`;
+              const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/", "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg"), "code": r.status_code}))`;
               const execPromise = new Promise((resolve) => {
                 execFile('python3', ['-c', pythonScript, targetDownloadUrl], { maxBuffer: 25 * 1024 * 1024 }, (err, stdout, stderr) => {
                   if (err) {
