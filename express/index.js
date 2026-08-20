@@ -389,7 +389,9 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
         rawThumbnailUrl = `${cleanBase}media/?size=l`;
       }
 
-      if (rawThumbnailUrl && hasNewColumns) {
+      console.log(`[STORAGE_DEBUG] rawThumbnailUrl: "${rawThumbnailUrl}", hasNewColumns: ${hasNewColumns}`);
+
+      if (rawThumbnailUrl) {
         try {
           console.log(`Downloading thumbnail from CDN: ${rawThumbnailUrl}`);
           let buffer = null;
@@ -407,6 +409,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
             });
             buffer = Buffer.from(imageRes.data);
             contentType = imageRes.headers['content-type'] || 'image/jpeg';
+            console.log(`[STORAGE_DEBUG] Downloaded image buffer size: ${buffer.length} bytes`);
           } catch (dlErr) {
             console.warn('⚠️ Direct image GET failed, trying Python scraper thumbnail extraction:', dlErr.message);
             const scraperOutput = await runScraper(url);
@@ -421,6 +424,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
               });
               buffer = Buffer.from(imageRes.data);
               contentType = imageRes.headers['content-type'] || 'image/jpeg';
+              console.log(`[STORAGE_DEBUG] Scraper fallback downloaded image buffer size: ${buffer.length} bytes`);
             }
           }
 
@@ -430,7 +434,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
             const storagePath = `${shortcode}.jpg`;
 
             console.log(`Uploading thumbnail to Supabase Storage bucket 'reels': ${storagePath}`);
-            const { error: uploadError } = await supabase.storage
+            const { data: uploadData, error: uploadError } = await supabase.storage
               .from('reels')
               .upload(storagePath, buffer, {
                 contentType,
@@ -438,7 +442,7 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
               });
 
             if (uploadError) {
-              console.warn('⚠️ Supabase Storage upload error:', uploadError.message);
+              console.error('❌ Supabase Storage upload error:', uploadError.message, uploadError);
               finalThumbnailUrl = rawThumbnailUrl;
             } else {
               const { data: { publicUrl } } = supabase.storage
@@ -448,10 +452,11 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
               console.log(`✅ Permanent thumbnail URL saved to Supabase storage: ${finalThumbnailUrl}`);
             }
           } else {
+            console.warn('[STORAGE_DEBUG] Image buffer is null, skipping storage upload');
             finalThumbnailUrl = rawThumbnailUrl;
           }
         } catch (err) {
-          console.warn('⚠️ Failed to store thumbnail to Supabase storage:', err.message);
+          console.error('❌ Failed to store thumbnail to Supabase storage:', err.message, err);
           finalThumbnailUrl = rawThumbnailUrl;
         }
       } else {
