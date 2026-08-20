@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '../api/supabase';
 import { ShareHistoryItem } from '../types';
 import { CONFIG } from '../config';
@@ -42,7 +41,7 @@ export async function fetchUserShareHistory(userId?: string, isDemoMode = false)
       if (error) throw error;
 
       if (data) {
-        const dbHistory: ShareHistoryItem[] = data
+        return data
           .filter((item: any) => item.videos !== null)
           .map((item: any) => {
             const video = item.videos;
@@ -74,19 +73,12 @@ export async function fetchUserShareHistory(userId?: string, isDemoMode = false)
               created_at: item.created_at,
             };
           });
-
-        await AsyncStorage.setItem('@share_history', JSON.stringify(dbHistory));
-        return dbHistory;
       }
     }
-
-    // Fallback to local storage
-    const cached = await AsyncStorage.getItem('@share_history');
-    return cached ? JSON.parse(cached) : [];
+    return [];
   } catch (err) {
     console.error('fetchUserShareHistory error:', err);
-    const cached = await AsyncStorage.getItem('@share_history');
-    return cached ? JSON.parse(cached) : [];
+    return [];
   }
 }
 
@@ -204,11 +196,6 @@ export function useProcessVideoMutation(session?: any) {
       };
     },
     onSuccess: async (result) => {
-      // Clear stale local AsyncStorage cache so fresh DB records (with thumbnail_url) load
-      try {
-        await AsyncStorage.removeItem('@share_history');
-      } catch (_) {}
-
       // Invalidate query to trigger seamless background refetch from Supabase
       await queryClient.invalidateQueries({
         queryKey: SHARE_QUERY_KEYS.user(session?.user?.id),
@@ -239,18 +226,6 @@ export function useDeleteShareHistoryMutation(session?: any) {
             .eq('user_id', userId)
             .eq('id', item.id);
         }
-      }
-
-      // Also update local AsyncStorage cache
-      try {
-        const cached = await AsyncStorage.getItem('@share_history');
-        if (cached) {
-          const parsed: ShareHistoryItem[] = JSON.parse(cached);
-          const filtered = parsed.filter((h) => h.id !== item.id && h.url !== item.url);
-          await AsyncStorage.setItem('@share_history', JSON.stringify(filtered));
-        }
-      } catch (e) {
-        console.warn('Failed to update local cache on delete:', e);
       }
 
       return item;
