@@ -429,10 +429,13 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
 
             // Attempt 3: Download binary stream via Python curl_cffi (impersonate="chrome")
             try {
-              const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg")}))`;
+              const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg"), "code": r.status_code}))`;
               const execPromise = new Promise((resolve) => {
-                execFile('python3', ['-c', pythonScript, targetDownloadUrl], { maxBuffer: 15 * 1024 * 1024 }, (err, stdout) => {
-                  if (err) return resolve(null);
+                execFile('python3', ['-c', pythonScript, targetDownloadUrl], { maxBuffer: 25 * 1024 * 1024 }, (err, stdout, stderr) => {
+                  if (err) {
+                    console.error('❌ pythonScript execFile error:', err.message, stderr);
+                    return resolve(null);
+                  }
                   try {
                     const parsed = JSON.parse(stdout.trim());
                     if (parsed.success && parsed.data) {
@@ -441,9 +444,11 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
                         contentType: parsed.type || 'image/jpeg'
                       });
                     } else {
+                      console.warn('⚠️ pythonScript returned success=false:', parsed);
                       resolve(null);
                     }
-                  } catch (_) {
+                  } catch (pErr) {
+                    console.error('❌ pythonScript output parse error:', pErr.message, stdout);
                     resolve(null);
                   }
                 });
