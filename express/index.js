@@ -287,6 +287,53 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       finalThumbnailUrl = existingVideo.thumbnail_url || null;
       console.log(`🚀 Video already exists in DB with ID: ${videoId}.`);
 
+      // If thumbnail is missing or not yet uploaded to Supabase Storage, backfill it now!
+      const isStoredInSupabase = finalThumbnailUrl && (
+        finalThumbnailUrl.includes('supabase.co/storage') ||
+        finalThumbnailUrl.includes('/storage/v1/object/public/')
+      );
+
+      if (!isStoredInSupabase && hasNewColumns) {
+        try {
+          const shortcodeMatch = cleanUrl.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
+          const shortcode = shortcodeMatch ? shortcodeMatch[1] : `temp_${Date.now()}`;
+          const storagePath = `${shortcode}.jpg`;
+          const rawUrl = `${cleanUrl}/media/?size=l`;
+
+          console.log(`Backfilling missing thumbnail to Supabase Storage: ${storagePath}`);
+          const imageRes = await axios.get(rawUrl, {
+            responseType: 'arraybuffer',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              'Referer': 'https://www.instagram.com/'
+            }
+          });
+
+          const buffer = Buffer.from(imageRes.data);
+          const { error: uploadError } = await supabase.storage
+            .from('reels')
+            .upload(storagePath, buffer, {
+              contentType: imageRes.headers['content-type'] || 'image/jpeg',
+              upsert: true
+            });
+
+          if (!uploadError) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('reels')
+              .getPublicUrl(storagePath);
+            finalThumbnailUrl = publicUrl;
+            await supabase
+              .from('videos')
+              .update({ thumbnail_url: publicUrl })
+              .eq('id', videoId);
+            console.log(`✅ Backfilled permanent thumbnail URL to DB: ${publicUrl}`);
+          }
+        } catch (err) {
+          console.warn('⚠️ Backfill thumbnail to Supabase storage failed:', err.message);
+        }
+      }
+
       // If embedding was missing or summary needs AI processing, update it now
       if (!existingVideo.embedding && genAI) {
         console.log('Generating missing AI summary and embedding for existing video...');
