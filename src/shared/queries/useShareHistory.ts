@@ -204,6 +204,11 @@ export function useProcessVideoMutation(session?: any) {
       };
     },
     onSuccess: async (result) => {
+      // Clear stale local AsyncStorage cache so fresh DB records (with thumbnail_url) load
+      try {
+        await AsyncStorage.removeItem('@share_history');
+      } catch (_) {}
+
       // Invalidate query to trigger seamless background refetch from Supabase
       await queryClient.invalidateQueries({
         queryKey: SHARE_QUERY_KEYS.user(session?.user?.id),
