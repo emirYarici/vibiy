@@ -5,11 +5,20 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   TextInput,
+  Dimensions,
 } from 'react-native';
+import AnimatedReanimated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate as reanimatedInterpolate,
+  Extrapolation,
+  type SharedValue,
+} from 'react-native-reanimated';
+import AppLoader from '../components/AppLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Heart, MessageCircle, Sparkles } from 'lucide-react-native';
+import { Heart, MessageCircle, Sparkles, Film, ArrowRight, ChevronRight } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
@@ -51,6 +60,86 @@ export const parseReferredMessage = (content: string) => {
     message: content,
   };
 };
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+interface ConversationListItemProps {
+  item: {
+    matchId: string;
+    profile: DBProfile;
+    lastMessage: MessageRecord;
+    score: number;
+  };
+  currentUserId: string;
+  onPress: () => void;
+  formatMessageTime: (iso: string) => string;
+}
+
+function ConversationListItem({
+  item,
+  currentUserId,
+  onPress,
+  formatMessageTime,
+}: ConversationListItemProps) {
+  const isMine = item.lastMessage?.sender_id === currentUserId;
+  const parsed = parseReferredMessage(item.lastMessage?.content || '');
+  const lastTextSnippet = parsed.isReferred
+    ? `Shared a video: "${parsed.message || 'Instagram Reel'}"`
+    : parsed.message || 'Started a conversation';
+  const archetype = getMatchArchetype(item.score);
+  const photoUri =
+    item.profile.photos && item.profile.photos.length > 0
+      ? item.profile.photos[0]
+      : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=500';
+
+  return (
+    <TouchableOpacity
+      style={styles.convoRowCard}
+      activeOpacity={0.8}
+      onPress={onPress}
+    >
+      {/* Left Avatar with Badges */}
+      <View style={styles.convoAvatarWrapper}>
+        <SkeletonImage source={{ uri: photoUri }} style={styles.convoAvatarImg} />
+        <View style={styles.convoOnlineDot} />
+        <View style={[styles.convoRowArchetypeBadge, { backgroundColor: archetype.bgColor }]}>
+          <ArchetypeIcon type={archetype.type} size={10} color={archetype.textColor} />
+        </View>
+      </View>
+
+      {/* Middle Content */}
+      <View style={styles.convoRowContent}>
+        <View style={styles.convoRowHeader}>
+          <Text style={styles.convoRowName} numberOfLines={1}>
+            {item.profile.full_name}, <Text style={styles.convoRowAge}>{item.profile.age || 22}</Text>
+          </Text>
+          <Text style={styles.convoRowTime}>
+            {formatMessageTime(item.lastMessage.created_at)}
+          </Text>
+        </View>
+
+        <View style={styles.convoRowMessageLine}>
+          <Text style={styles.convoRowMessageText} numberOfLines={1}>
+            <Text style={styles.convoRowMessageAuthor}>
+              {isMine ? 'You: ' : `${item.profile.full_name.split(' ')[0]}: `}
+            </Text>
+            {lastTextSnippet}
+          </Text>
+          {!isMine && <View style={styles.convoUnreadDot} />}
+        </View>
+      </View>
+
+      {/* Right Side Archetype Pill & Chevron */}
+      <View style={styles.convoRowRight}>
+        <View style={[styles.convoRowScorePill, { backgroundColor: archetype.bgColor }]}>
+          <Text style={[styles.convoRowScoreText, { color: archetype.textColor }]}>
+            {Math.round(item.score * 100)}%
+          </Text>
+        </View>
+        <ChevronRight size={16} color={COLORS.textDarkSecondary} />
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 export default function MatchesPage({ session, isDemoMode, navigation }: MatchesPageProps) {
   const queryClient = useQueryClient();
@@ -209,7 +298,7 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.accent} />
+          <AppLoader size="large" color={COLORS.accent} />
           <Text style={styles.loadingText}>Finding your matches...</Text>
         </View>
       ) : matchedUsers.length === 0 ? (
@@ -308,85 +397,44 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
             </View>
           )}
 
-          {/* 4. Main White Card for Active Conversations */}
-          <View style={styles.chatsCard}>
-            <Text style={styles.sectionLabel}>Active Conversations</Text>
+          {/* 4. Active Conversations Big Sliding Cards Carousel */}
+          <View style={styles.convoSection}>
+            <View style={styles.convoSectionHeader}>
+              <View style={styles.convoSectionTitleGroup}>
+                <MessageCircle size={15} color={COLORS.accent} />
+                <Text style={styles.convoSectionTitle}>ACTIVE CONVERSATIONS</Text>
+              </View>
+              {conversations.length > 0 && (
+                <View style={styles.convoCountPill}>
+                  <Text style={styles.convoCountText}>{conversations.length}</Text>
+                </View>
+              )}
+            </View>
 
             {conversations.length === 0 ? (
-              <View style={styles.noChatsInner}>
+              <View style={styles.noChatsCard}>
                 <MessageCircle size={28} color={COLORS.textMuted} strokeWidth={1.8} />
                 <Text style={styles.noChatsText}>
                   Tap any match above to start your first conversation!
                 </Text>
               </View>
             ) : (
-              <View style={styles.conversationsList}>
-                {conversations.map((item, index) => {
-                  const isMine = item.lastMessage.sender_id === currentUserId;
-                  const parsed = parseReferredMessage(item.lastMessage.content);
-                  const lastTextSnippet = parsed.isReferred
-                    ? `Shared ${parsed.url.includes('/reel/') ? 'Reel' : 'Post'}`
-                    : parsed.message;
-                  const archetype = getMatchArchetype(item.score);
-
-                  return (
-                    <TouchableOpacity
-                      key={item.matchId}
-                      style={[
-                        styles.convoRow,
-                        index < conversations.length - 1 && styles.convoRowDivider,
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() =>
-                        navigation.navigate('Chat', {
-                          matchId: item.matchId,
-                          session,
-                          isDemoMode,
-                        })
-                      }
-                    >
-                      <View style={styles.convoAvatarWrapper}>
-                        <SkeletonImage
-                          source={{
-                            uri:
-                              (item.profile.photos && item.profile.photos[0]) ||
-                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
-                          }}
-                          style={styles.convoAvatar}
-                        />
-                        <View style={styles.onlineDot} />
-                        {/* Lucide Archetype Badge on Chat Avatar */}
-                        <View style={[styles.convoArchetypeBadge, { backgroundColor: archetype.bgColor }]}>
-                          <ArchetypeIcon type={archetype.type} size={9} color={archetype.textColor} />
-                        </View>
-                      </View>
-
-                      <View style={styles.convoDetails}>
-                        <View style={styles.convoTopLine}>
-                          <View style={styles.convoNameRow}>
-                            <Text style={styles.convoName}>{item.profile.full_name}</Text>
-                            {/* Lucide Archetype Pill Tag */}
-                            <ArchetypePillBadge archetype={archetype} size="sm" />
-                          </View>
-                          <Text style={styles.convoTime}>
-                            {formatMessageTime(item.lastMessage.created_at)}
-                          </Text>
-                        </View>
-                        <View style={styles.convoBottomLine}>
-                          <Text style={styles.convoLastMsg} numberOfLines={1}>
-                            {isMine ? 'You : ' : ''}
-                            {lastTextSnippet}
-                          </Text>
-                          {!isMine && (
-                            <View style={styles.unreadBadge}>
-                              <Text style={styles.unreadBadgeText}>1</Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+              <View style={styles.convoVerticalList}>
+                {conversations.map((item) => (
+                  <ConversationListItem
+                    key={item.matchId}
+                    item={item}
+                    currentUserId={currentUserId}
+                    formatMessageTime={formatMessageTime}
+                    onPress={() =>
+                      navigation.navigate('Chat', {
+                        matchId: item.matchId,
+                        session,
+                        isDemoMode,
+                      })
+                    }
+                  />
+                ))}
               </View>
             )}
           </View>
@@ -536,6 +584,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.cardBg,
     ...SHADOWS.sm,
   },
+  storyName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginTop: 4,
+  },
   storyArchetypeEmoji: {
     fontSize: 10,
   },
@@ -546,64 +601,75 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 2,
   },
-  storyName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginTop: 6,
-    textAlign: 'center',
+  convoSection: {
+    marginTop: 10,
+    marginBottom: 28,
   },
-  chatsCard: {
-    backgroundColor: COLORS.cardBgIvory,
-    borderRadius: RADIUS.card,
-    marginHorizontal: 16,
-    padding: 20,
-    paddingTop: 16,
-    ...SHADOWS.md,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.textDarkSecondary,
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  noChatsInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 10,
-  },
-  noChatsText: {
-    fontSize: 14,
-    color: COLORS.textDarkSecondary,
-    textAlign: 'center',
-    maxWidth: 240,
-    lineHeight: 20,
-  },
-  conversationsList: {
-    gap: 6,
-  },
-  convoRow: {
+  convoSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 14,
   },
-  convoRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(94, 88, 115, 0.08)',
+  convoSectionTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  convoSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: 0.8,
+  },
+  convoCountPill: {
+    backgroundColor: COLORS.accent,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: RADIUS.pill,
+  },
+  convoCountText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: COLORS.primaryText,
+  },
+  convoVerticalList: {
+    paddingHorizontal: 16,
+    gap: 10,
+    marginTop: 4,
+  },
+  convoRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.cardBg,
+    borderRadius: RADIUS.card,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    ...SHADOWS.sm,
   },
   convoAvatarWrapper: {
     position: 'relative',
-    marginRight: 14,
+    marginRight: 12,
   },
-  convoAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+  convoAvatarImg: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
-  convoArchetypeBadge: {
+  convoOnlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: COLORS.accent,
+    borderWidth: 2,
+    borderColor: COLORS.cardBg,
+  },
+  convoRowArchetypeBadge: {
     position: 'absolute',
     top: -2,
     left: -2,
@@ -612,72 +678,89 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: COLORS.cardBg,
+    ...SHADOWS.sm,
   },
-  convoArchetypeEmoji: {
-    fontSize: 9,
-  },
-  convoDetails: {
+  convoRowContent: {
     flex: 1,
     justifyContent: 'center',
   },
-  convoTopLine: {
+  convoRowHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 4,
   },
-  convoNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  convoName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.textDark,
-  },
-  archetypePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: RADIUS.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  archetypePillText: {
-    fontSize: 10,
+  convoRowName: {
+    fontSize: 16,
     fontWeight: '800',
+    color: COLORS.textDark,
+    flex: 1,
+    marginRight: 6,
   },
-  convoTime: {
-    fontSize: 11,
-    color: COLORS.textDarkSecondary,
+  convoRowAge: {
     fontWeight: '500',
+    color: COLORS.textDarkSecondary,
   },
-  convoBottomLine: {
+  convoRowTime: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textDarkSecondary,
+  },
+  convoRowMessageLine: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  convoLastMsg: {
+  convoRowMessageText: {
     fontSize: 13,
     color: COLORS.textDarkSecondary,
     flex: 1,
-    marginRight: 8,
+    marginRight: 6,
   },
-  unreadBadge: {
-    backgroundColor: COLORS.accent,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  convoRowMessageAuthor: {
+    fontWeight: '700',
+    color: COLORS.textDark,
+  },
+  convoUnreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.danger,
+    marginLeft: 4,
+  },
+  convoRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 6,
+  },
+  convoRowScorePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: RADIUS.pill,
+  },
+  convoRowScoreText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  noChatsCard: {
+    backgroundColor: COLORS.cardBgIvory,
+    borderRadius: RADIUS.card,
+    marginHorizontal: 16,
+    padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
+    ...SHADOWS.md,
   },
-  unreadBadgeText: {
-    color: COLORS.textDark,
-    fontSize: 11,
-    fontWeight: '900',
+  noChatsText: {
+    fontSize: 14,
+    color: COLORS.textDarkSecondary,
+    textAlign: 'center',
+    maxWidth: 240,
+    lineHeight: 20,
   },
   emptyContainer: {
     flex: 1,

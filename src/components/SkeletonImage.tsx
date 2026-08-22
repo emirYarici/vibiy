@@ -5,10 +5,11 @@ import {
   Animated,
   StyleProp,
   ViewStyle,
+  Image,
   ImageProps,
-  ActivityIndicator,
 } from 'react-native';
 import { COLORS } from '../shared/theme';
+import AppLoader from './AppLoader';
 
 export interface SkeletonImageProps extends ImageProps {
   containerStyle?: StyleProp<ViewStyle>;
@@ -16,7 +17,7 @@ export interface SkeletonImageProps extends ImageProps {
   showSkeleton?: boolean;
   showLoader?: boolean;
   loaderColor?: string;
-  loaderSize?: 'small' | 'large';
+  loaderSize?: 'small' | 'large' | number;
 }
 
 export default function SkeletonImage({
@@ -25,7 +26,7 @@ export default function SkeletonImage({
   containerStyle,
   skeletonStyle,
   showSkeleton = true,
-  showLoader = true,
+  showLoader = false,
   loaderColor = COLORS.accent,
   loaderSize = 'small',
   onLoadStart,
@@ -35,7 +36,6 @@ export default function SkeletonImage({
 }: SkeletonImageProps) {
   const [isLoading, setIsLoading] = useState(true);
   const pulseAnim = useRef(new Animated.Value(0.35)).current;
-  const imageOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -56,19 +56,26 @@ export default function SkeletonImage({
     return () => pulse.stop();
   }, [pulseAnim]);
 
+  const uri = (source && typeof source === 'object' && 'uri' in source) ? source.uri : null;
+
+  useEffect(() => {
+    if (uri) {
+      setIsLoading(true);
+    }
+  }, [uri]);
+
+  const handleLoadSuccess = (e: any) => {
+    setIsLoading(false);
+    (rest as any).onLoad?.(e);
+  };
+
   const handleLoadStart = () => {
     setIsLoading(true);
-    imageOpacity.setValue(0);
     onLoadStart?.();
   };
 
   const handleLoadEnd = () => {
     setIsLoading(false);
-    Animated.timing(imageOpacity, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
     onLoadEnd?.();
   };
 
@@ -84,14 +91,13 @@ export default function SkeletonImage({
   const borderBottomLeftRadius = flattenedStyle.borderBottomLeftRadius || borderRadius;
   const borderBottomRightRadius = flattenedStyle.borderBottomRightRadius || borderRadius;
 
-  const finalSource = source && typeof source === 'object' && 'uri' in source && source.uri
-    ? { ...source, cache: 'force-cache' as const }
-    : source;
+  const finalSource = source;
 
   return (
     <View
       style={[
         styles.container,
+        style,
         containerStyle,
         {
           borderRadius,
@@ -102,6 +108,17 @@ export default function SkeletonImage({
         },
       ]}
     >
+      {/* Standard Image Component */}
+      <Image
+        {...rest}
+        source={finalSource}
+        style={[styles.imageFull, style]}
+        onLoad={handleLoadSuccess}
+        onLoadStart={handleLoadStart}
+        onLoadEnd={handleLoadEnd}
+        onError={handleError}
+      />
+
       {/* Shimmering Skeleton Background */}
       {showSkeleton && isLoading && (
         <Animated.View
@@ -121,22 +138,12 @@ export default function SkeletonImage({
         />
       )}
 
-      {/* Centered Activity Spinner Loader */}
+      {/* Centered Spinner Loader */}
       {showLoader && isLoading && (
         <View style={styles.loaderCenter}>
-          <ActivityIndicator size={loaderSize} color={loaderColor} />
+          <AppLoader size={loaderSize} color={loaderColor} />
         </View>
       )}
-
-      {/* Image with smooth fade-in */}
-      <Animated.Image
-        {...rest}
-        source={finalSource}
-        style={[style, { opacity: imageOpacity }]}
-        onLoadStart={handleLoadStart}
-        onLoadEnd={handleLoadEnd}
-        onError={handleError}
-      />
     </View>
   );
 }
@@ -148,6 +155,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
+    height: '100%',
   },
   skeleton: {
     backgroundColor: 'rgba(0, 0, 0, 0.14)',
@@ -162,5 +171,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 2,
+  },
+  imageFull: {
+    width: '100%',
+    height: '100%',
   },
 });

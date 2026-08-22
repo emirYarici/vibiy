@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   StyleSheet,
-  Text,
   View,
-  ActivityIndicator,
+  Text,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -29,6 +28,7 @@ import MatchesPage from '../pages/MatchesPage';
 import SharePage from '../pages/SharePage';
 import TabBar from '../components/TabBar';
 import ProfileOnboarding from '../pages/ProfileOnboarding';
+import AppLoader from '../components/AppLoader';
 import ProfileDetailsPage from '../pages/ProfileDetailsPage';
 import ChatPage from '../pages/ChatPage';
 import { useProfile } from '../shared/queries/useProfile';
@@ -371,16 +371,30 @@ export default function AppContainer() {
       const hasGender = !!profile.gender;
       const hasPreference = !!profile.preference;
       const complete = hasName && hasPhoto && hasGender && hasPreference;
+      
+      const missingFields = [];
+      if (!hasName) missingFields.push('full_name');
+      if (!hasPhoto) missingFields.push('photos');
+      if (!hasGender) missingFields.push('gender');
+      if (!hasPreference) missingFields.push('preference');
+
+      if (!complete) {
+        console.warn('⚠️ [PROFILE INCOMPLETE] Redirecting to Onboarding. Missing fields:', missingFields, { profile });
+      } else {
+        console.log('✅ [PROFILE COMPLETE] User profile is fully complete.');
+      }
+
       console.log('⚙️ [PROFILE CHECK] Calculated completeness:', {
         hasName,
         hasPhoto,
         hasGender,
         hasPreference,
         isProfileComplete: complete,
+        missingFields,
       });
       setIsProfileComplete(complete);
     } else {
-      console.log('⚙️ [PROFILE CHECK] Profile object is null -> setting isProfileComplete = false');
+      console.warn('⚠️ [PROFILE CHECK] Profile record is null in Supabase -> Redirecting to Onboarding');
       setIsProfileComplete(false);
     }
   }, [session, profile, isProfileLoading]);
@@ -522,7 +536,7 @@ export default function AppContainer() {
         <Animated.View style={{ opacity: pulseAnim, transform: [{ scale: pulseAnim }] }}>
           <Text style={styles.loadingLogo}>vibiy</Text>
         </Animated.View>
-        <ActivityIndicator size="small" color={COLORS.primary} style={{ marginTop: 24 }} />
+        <AppLoader size="small" color={COLORS.primary} style={{ marginTop: 24 }} />
       </View>
     );
   }

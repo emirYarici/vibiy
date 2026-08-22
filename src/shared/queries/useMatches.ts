@@ -147,15 +147,33 @@ export function useUnmatch() {
         const localMatches: MatchRecord[] = localMatchesStr ? JSON.parse(localMatchesStr) : [];
         const updatedMatches = localMatches.filter((m) => m.id !== matchId);
         await AsyncStorage.setItem('@demo_matches', JSON.stringify(updatedMatches));
+
+        const localMessagesStr = await AsyncStorage.getItem('@demo_messages');
+        if (localMessagesStr) {
+          const localMessages: MessageRecord[] = JSON.parse(localMessagesStr);
+          const updatedMessages = localMessages.filter((m) => m.match_id !== matchId);
+          await AsyncStorage.setItem('@demo_messages', JSON.stringify(updatedMessages));
+        }
         return;
       }
 
-      const { error } = await supabase
+      // 1. Delete all messages for this match to free database storage
+      const { error: deleteMsgError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('match_id', matchId);
+
+      if (deleteMsgError) {
+        console.warn('⚠️ Warning: Failed to purge messages for match:', deleteMsgError);
+      }
+
+      // 2. Keep the match record with status 'unmatched' to prevent re-matching
+      const { error: matchError } = await supabase
         .from('matches')
         .update({ status: 'unmatched' })
         .eq('id', matchId);
 
-      if (error) throw error;
+      if (matchError) throw matchError;
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({

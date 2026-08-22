@@ -287,47 +287,68 @@ app.post('/api/process-video', authenticateToken, async (req, res) => {
       finalThumbnailUrl = existingVideo.thumbnail_url || null;
       console.log(`🚀 Video already exists in DB with ID: ${videoId}.`);
 
-      // If thumbnail is missing or not yet uploaded to Supabase Storage, backfill it now!
       const isStoredInSupabase = finalThumbnailUrl && (
         finalThumbnailUrl.includes('supabase.co/storage') ||
         finalThumbnailUrl.includes('/storage/v1/object/public/')
       );
 
-      if (!isStoredInSupabase && hasNewColumns) {
+      if (!isStoredInSupabase) {
         try {
           const shortcodeMatch = cleanUrl.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
           const shortcode = shortcodeMatch ? shortcodeMatch[1] : `temp_${Date.now()}`;
           const storagePath = `${shortcode}.jpg`;
-          const rawUrl = `${cleanUrl}/media/?size=l`;
 
           console.log(`Backfilling missing thumbnail to Supabase Storage: ${storagePath}`);
-          const imageRes = await axios.get(rawUrl, {
-            responseType: 'arraybuffer',
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-              'Referer': 'https://www.instagram.com/'
-            }
+          
+          let buffer = null;
+          let contentType = 'image/jpeg';
+
+          // Download via Python curl_cffi
+          const pythonScript = `import sys, json, base64; from curl_cffi import requests; url = sys.argv[1]; r = requests.get(url, impersonate="chrome", headers={"referer": "https://www.instagram.com/"}); print(json.dumps({"success": r.status_code == 200, "data": base64.b64encode(r.content).decode("utf-8") if r.status_code == 200 else None, "type": r.headers.get("content-type", "image/jpeg")}))`;
+          const execPromise = new Promise((resolve) => {
+            execFile('python3', ['-c', pythonScript, cleanUrl], { maxBuffer: 25 * 1024 * 1024 }, (err, stdout) => {
+              if (err) return resolve(null);
+              try {
+                const parsed = JSON.parse(stdout.trim());
+                if (parsed.success && parsed.data) {
+                  resolve({
+                    buffer: Buffer.from(parsed.data, 'base64'),
+                    contentType: parsed.type || 'image/jpeg'
+                  });
+                } else {
+                  resolve(null);
+                }
+              } catch (_) {
+                resolve(null);
+              }
+            });
           });
 
-          const buffer = Buffer.from(imageRes.data);
-          const { error: uploadError } = await supabase.storage
-            .from('reels')
-            .upload(storagePath, buffer, {
-              contentType: imageRes.headers['content-type'] || 'image/jpeg',
-              upsert: true
-            });
+          const pyResult = await execPromise;
+          if (pyResult && pyResult.buffer) {
+            buffer = pyResult.buffer;
+            contentType = pyResult.contentType;
+          }
 
-          if (!uploadError) {
-            const { data: { publicUrl } } = supabase.storage
+          if (buffer) {
+            const { error: uploadError } = await supabase.storage
               .from('reels')
-              .getPublicUrl(storagePath);
-            finalThumbnailUrl = publicUrl;
-            await supabase
-              .from('videos')
-              .update({ thumbnail_url: publicUrl })
-              .eq('id', videoId);
-            console.log(`✅ Backfilled permanent thumbnail URL to DB: ${publicUrl}`);
+              .upload(storagePath, buffer, {
+                contentType,
+                upsert: true
+              });
+
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('reels')
+                .getPublicUrl(storagePath);
+              finalThumbnailUrl = publicUrl;
+              await supabase
+                .from('videos')
+                .update({ thumbnail_url: publicUrl })
+                .eq('id', videoId);
+              console.log(`✅ Backfilled permanent thumbnail URL to DB: ${publicUrl}`);
+            }
           }
         } catch (err) {
           console.warn('⚠️ Backfill thumbnail to Supabase storage failed:', err.message);
@@ -829,6 +850,71 @@ app.post('/api/webhooks/supabase-message', async (req, res) => {
     return res.status(500).json({ success: false, error: err.message || 'Internal Webhook Error' });
   }
 });
+
+// ==============================================================================
+// 🧹 Auto-TTL & Message Cleanup Maintenance Endpoint
+// ==============================================================================
+app.post('/api/maintenance/prune-messages', async (req, res) => {
+  try {
+    const ttlDays = parseInt(req.body.ttlDays || req.query.ttlDays || '30', 10);
+    console.log(`🧹 Running message TTL cleanup (Threshold: ${ttlDays} days)...`);
+
+    // Call Supabase stored procedure if created
+    const { data: rpcData, error: rpcError } = await supabase.rpc('cleanup_expired_messages', {
+      p_ttl_days: ttlDays,
+    });
+
+    if (!rpcError && rpcData) {
+      console.log('✅ Supabase cleanup_expired_messages RPC executed:', rpcData);
+      return res.json({ success: true, result: rpcData });
+    }
+
+    // Fallback: Direct table operations if RPC is not yet registered in SQL
+    console.log('ℹ️ Executing fallback direct SQL cleanup...');
+    // 1. Find unmatched match IDs
+    const { data: unmatchedMatches } = await supabase
+      .from('matches')
+      .select('id')
+      .eq('status', 'unmatched');
+
+    let purgedUnmatched = 0;
+    if (unmatchedMatches && unmatchedMatches.length > 0) {
+      const matchIds = unmatchedMatches.map((m) => m.id);
+      const { count } = await supabase
+        .from('messages')
+        .delete({ count: 'exact' })
+        .in('match_id', matchIds);
+      purgedUnmatched = count || 0;
+    }
+
+    // 2. Delete messages older than TTL days
+    const cutoffDate = new Date(Date.now() - ttlDays * 24 * 60 * 60 * 1000).toISOString();
+    const { count: purgedTtl } = await supabase
+      .from('messages')
+      .delete({ count: 'exact' })
+      .lt('created_at', cutoffDate);
+
+    console.log(`✅ Direct message cleanup complete: ${purgedUnmatched} unmatched, ${purgedTtl || 0} expired TTL.`);
+    return res.json({
+      success: true,
+      purgedUnmatched,
+      purgedTtl: purgedTtl || 0,
+    });
+  } catch (err) {
+    console.error('❌ Error executing message cleanup:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Periodic automatic background cleanup routine (every 24 hours)
+setInterval(async () => {
+  try {
+    console.log('⏰ [AUTO-TTL] Running scheduled daily message cleanup...');
+    await axios.post(`http://localhost:${PORT}/api/maintenance/prune-messages`, { ttlDays: 30 });
+  } catch (e) {
+    console.warn('⚠️ Scheduled message cleanup warning:', e.message);
+  }
+}, 24 * 60 * 60 * 1000);
 
 // Start listening
 app.listen(PORT, () => {

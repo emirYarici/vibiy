@@ -39,41 +39,46 @@ import AnimatedReanimated, {
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { ShareHistoryItem } from '../shared/types';
 import { CONFIG } from '../shared/config';
-import SkeletonImage from '../components/SkeletonImage';
 import VideoAnalyzingOverlay from '../components/VideoAnalyzingOverlay';
 import ShareSuccessModal from '../components/ShareSuccessModal';
 
+import SkeletonImage from '../components/SkeletonImage';
+
 const InstagramThumbnail = ({
-  url,
   thumbnailUrl: directThumbnailUrl,
   width = 54,
   height = 70,
   borderRadius = RADIUS.sm,
 }: {
-  url: string;
+  url?: string;
   thumbnailUrl?: string;
   width?: number;
   height?: number;
   borderRadius?: number;
 }) => {
-  // Use direct thumbnail_url from public.videos table (Supabase Storage URL)
-  // Fallback to Instagram media link if thumbnail_url is missing
-  let thumbnailUrl: string | null = directThumbnailUrl || null;
-  if (!thumbnailUrl && url) {
-    const cleanUrl = url.split('?')[0].replace(/\/$/, '');
-    thumbnailUrl = `${cleanUrl}/media/?size=l`;
-  }
+  // STRICT REQUIREMENT: Only use thumbnail_url directly from public.videos table
+  const thumbnailUrl = directThumbnailUrl || null;
+
+  useEffect(() => {
+    if (thumbnailUrl) {
+      Image.prefetch(thumbnailUrl).catch(() => {});
+    }
+  }, [thumbnailUrl]);
 
   return (
     <View style={[styles.thumbContainer, { width, height, borderRadius }]}>
       {thumbnailUrl ? (
         <SkeletonImage
-          source={{ uri: thumbnailUrl }}
+          source={{
+            uri: thumbnailUrl,
+            cache: 'force-cache',
+            headers: {
+              'Cache-Control': 'public, max-age=31536000, immutable',
+            },
+          }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
-          onLoadStart={() => console.log('[DEBUG_THUMBNAIL] Image load started:', thumbnailUrl)}
-          onLoadEnd={() => console.log('[DEBUG_THUMBNAIL] Image load succeeded:', thumbnailUrl)}
-          onError={(e) => console.error('[DEBUG_THUMBNAIL] Image load FAILED:', thumbnailUrl, e?.nativeEvent)}
+          showLoader={false}
         />
       ) : (
         <View style={styles.thumbFallback}>
@@ -95,7 +100,7 @@ function getOrdinal(n: number): string {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SLOT_CARD_WIDTH = 160;
-const SLOT_CARD_HEIGHT = 195;
+const SLOT_CARD_HEIGHT = 235;
 const SLOT_GAP = 14;
 const SLOT_ITEM_SIZE = SLOT_CARD_WIDTH + SLOT_GAP;
 const CAROUSEL_PADDING_HORIZONTAL = Math.max(16, (SCREEN_WIDTH - 40 - SLOT_CARD_WIDTH) / 2);
@@ -337,6 +342,14 @@ export default function SharePage({
   }, []);
 
   const handleManualSubmit = () => {
+    if (sharedCount >= 3) {
+      Alert.alert(
+        'All 3 Slots Filled! 🎉',
+        "You've already filled all 3 daily video slots! Your curated match drop will happen tomorrow morning at 9:00 AM.",
+        [{ text: 'Got It', style: 'default' }]
+      );
+      return;
+    }
     if (!inputText.trim()) {
       Alert.alert('Error', 'Please enter or paste an Instagram URL.');
       return;
@@ -365,6 +378,14 @@ export default function SharePage({
   };
 
   const handlePaste = async () => {
+    if (sharedCount >= 3) {
+      Alert.alert(
+        'All 3 Slots Filled! 🎉',
+        "You've already filled all 3 daily video slots! Your curated match drop will happen tomorrow morning at 9:00 AM.",
+        [{ text: 'Got It', style: 'default' }]
+      );
+      return;
+    }
     const text = await Clipboard.getString();
     if (!text.trim()) {
       Alert.alert('Clipboard Empty', 'Nothing found in clipboard.');
@@ -430,36 +451,6 @@ export default function SharePage({
               : "Share at least 3 videos today so our AI can match you with people who share your humor & aesthetic."}
           </Text>
 
-          {/* 3 Milestone Slots Swipable Reanimated Carousel */}
-          <View style={styles.carouselWrapper}>
-            <AnimatedReanimated.FlatList
-              data={[0, 1, 2]}
-              keyExtractor={(item) => item.toString()}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              snapToOffsets={SNAP_OFFSETS}
-              decelerationRate="fast"
-              nestedScrollEnabled
-              contentContainerStyle={[
-                styles.carouselContentContainer,
-                { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
-              ]}
-              
-              onScroll={onCarouselScroll}
-              scrollEventThrottle={16}
-              renderItem={({ item: idx, index }) => (
-                <SlotCarouselItem
-                  idx={idx}
-                  index={index}
-                  scrollX={carouselScrollX}
-                  item={todayItems[idx]}
-                  isCompleted={idx < sharedCount}
-                  onPaste={handlePaste}
-                />
-              )}
-            />
-          </View>
-
           {/* ⭕ Clean SVG Circular Progress Ring */}
           <View style={styles.circularProgressContainer}>
             <View style={styles.svgCircleWrapper}>
@@ -494,6 +485,35 @@ export default function SharePage({
                 </Text>
               </View>
             </View>
+          </View>
+
+          {/* 3 Milestone Slots Swipable Reanimated Carousel */}
+          <View style={styles.carouselWrapper}>
+            <AnimatedReanimated.FlatList
+              data={[0, 1, 2]}
+              keyExtractor={(item) => item.toString()}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToOffsets={SNAP_OFFSETS}
+              decelerationRate="fast"
+              nestedScrollEnabled
+              contentContainerStyle={[
+                styles.carouselContentContainer,
+                { paddingHorizontal: CAROUSEL_PADDING_HORIZONTAL },
+              ]}
+              onScroll={onCarouselScroll}
+              scrollEventThrottle={16}
+              renderItem={({ item: idx, index }) => (
+                <SlotCarouselItem
+                  idx={idx}
+                  index={index}
+                  scrollX={carouselScrollX}
+                  item={todayItems[idx]}
+                  isCompleted={idx < sharedCount}
+                  onPaste={handlePaste}
+                />
+              )}
+            />
           </View>
         </View>
 
@@ -561,9 +581,11 @@ export default function SharePage({
             <Text style={confirmStyles.highlight}>
               This will be your {reelLabel} reel of the day!
             </Text>
-            {sharedCount < 3
-              ? `\n\nYou need ${3 - sharedCount-1} more video${3 - sharedCount-1 === 1 ? '' : 's'} to unlock tomorrow's match drop. 🔥`
-              : '\n\nYou\'ve already hit your daily goal! Bonus reel incoming. 🎉'}
+            {sharedCount < 2
+              ? `\n\nYou need ${3 - sharedCount - 1} more video${3 - sharedCount - 1 === 1 ? '' : 's'} to unlock tomorrow morning's match drop. 🔥`
+              : sharedCount === 2
+              ? "\n\nThis fills all 3 slots! Your curated match drop will happen tomorrow morning at 9:00 AM! ☀️✨"
+              : '\n\nAll 3 slots are full! Your matches will drop tomorrow morning at 9:00 AM. 🎉'}
           </Text>
 
           {/* URL pill */}
@@ -1103,7 +1125,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -22,
     marginBottom: 20,
     marginTop: 8,
-    height: 255,
+    height: 280,
     justifyContent: 'center',
   },
   carouselContentContainer: {

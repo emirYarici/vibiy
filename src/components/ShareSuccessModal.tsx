@@ -50,34 +50,43 @@ export const ShareSuccessModal: React.FC<ShareSuccessModalProps> = ({
 
               {/* Title & Headline */}
               <Text style={styles.title}>
-                {isUnlocked ? 'Drop Unlocked! 🔥' : 'Reel Shared! 🎉'}
+                {isUnlocked ? 'All 3 Slots Filled! 🔥' : 'Reel Shared! 🎉'}
               </Text>
 
               {/* Dynamic Body Text */}
               <Text style={styles.body}>
                 {isUnlocked ? (
                   <>
-                    Awesome! You've shared{' '}
-                    <Text style={styles.boldHighlight}>3/3 reels</Text> today.
+                    Awesome! You've filled all{' '}
+                    <Text style={styles.boldHighlight}>3/3 video slots</Text> today.
                     {'\n\n'}
-                    Tomorrow's 9:00 AM match drop is fully unlocked!
+                    Your vibe taste profile is locked in! Your next curated compatibility match will happen{' '}
+                    <Text style={styles.boldHighlight}>tomorrow morning at 9:00 AM</Text> ☀️✨
                   </>
                 ) : (
                   <>
                     Great taste! You've shared{' '}
                     <Text style={styles.boldHighlight}>{sharedCount}/3 reels</Text> today.
                     {'\n\n'}
-                    Share <Text style={styles.boldHighlight}>{remaining} more video{remaining === 1 ? '' : 's'}</Text> to unlock tomorrow's 9:00 AM match drop!
+                    Share <Text style={styles.boldHighlight}>{remaining} more video{remaining === 1 ? '' : 's'}</Text> to unlock your curated match drop tomorrow morning!
                   </>
                 )}
               </Text>
 
-              {/* Progress Counter Pill */}
-              <View style={styles.progressPill}>
-                <Text style={styles.progressPillText}>
-                  Today's Progress: {Math.min(sharedCount, 3)}/3 Shared
-                </Text>
-              </View>
+              {/* Progress / Drop Schedule Pill */}
+              {isUnlocked ? (
+                <View style={styles.dropScheduledPill}>
+                  <Text style={styles.dropScheduledPillText}>
+                    ⏰ Match Drop: Tomorrow Morning at 9:00 AM
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.progressPill}>
+                  <Text style={styles.progressPillText}>
+                    Today's Progress: {Math.min(sharedCount, 3)}/3 Shared
+                  </Text>
+                </View>
+              )}
 
               {/* CTA Button */}
               <TouchableOpacity
@@ -86,7 +95,7 @@ export const ShareSuccessModal: React.FC<ShareSuccessModalProps> = ({
                 activeOpacity={0.85}
               >
                 <Text style={styles.buttonText}>
-                  {isUnlocked ? 'Awesome! ✨' : 'Keep Vibing ✨'}
+                  {isUnlocked ? 'Got It! See You Tomorrow ✨' : 'Keep Vibing ✨'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -107,13 +116,13 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 320,
+    maxWidth: 330,
     backgroundColor: COLORS.cardBgIvory || '#FCEEC9',
     borderRadius: RADIUS.xl || 28,
     paddingVertical: 28,
     paddingHorizontal: 24,
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.4)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 16 },
@@ -152,7 +161,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    marginBottom: 22,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: 'rgba(0, 0, 0, 0.06)',
   },
@@ -160,6 +169,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: COLORS.textDark || '#331005',
+  },
+  dropScheduledPill: {
+    backgroundColor: 'rgba(228, 40, 31, 0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(228, 40, 31, 0.25)',
+  },
+  dropScheduledPillText: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#E4281F',
+    textAlign: 'center',
   },
   button: {
     width: '100%',
@@ -171,8 +195,8 @@ const styles = StyleSheet.create({
     ...SHADOWS.md,
   },
   buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
 });

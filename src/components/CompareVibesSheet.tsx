@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Platform,
-  ActivityIndicator,
   Linking,
 } from 'react-native';
+import AppLoader from './AppLoader';
 import BottomSheet, {
   BottomSheetScrollView,
   BottomSheetBackdrop,
@@ -179,7 +179,7 @@ export default function CompareVibesSheet({
 
           {loading ? (
             <View style={styles.loaderContainer}>
-              <ActivityIndicator size="small" color={COLORS.accent} />
+              <AppLoader size="small" color={COLORS.accent} />
               <Text style={styles.loaderText}>Loading reels...</Text>
             </View>
           ) : partnerVideos.length === 0 ? (

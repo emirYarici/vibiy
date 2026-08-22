@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator,
   Image,
   Platform,
 } from 'react-native';
@@ -25,6 +24,7 @@ import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/ap
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { MainAppProps } from '../shared/types';
 import SkeletonImage from '../components/SkeletonImage';
+import AppLoader from '../components/AppLoader';
 import { useProfile, useUpdateProfile } from '../shared/queries/useProfile';
 
 export default function ProfilePage({ session, onLogout, isDemoMode = false }: MainAppProps) {
@@ -300,10 +300,10 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
           <View style={styles.editSection}>
             {/* Primary Cover Slot */}
             <Text style={styles.editSectionHeading}>PRIMARY COVER PHOTO</Text>
-            <View style={styles.primaryCoverBox}>
+            <View style={[styles.primaryCoverBox, profilePhotos[0] ? styles.primaryCoverBoxFilled : null]}>
               {uploadingIndex === 0 ? (
                 <View style={styles.slotLoader}>
-                  <ActivityIndicator size="large" color={COLORS.accent} />
+                  <AppLoader size="large" color={COLORS.accent} />
                 </View>
               ) : profilePhotos[0] ? (
                 <View style={styles.coverImageContainer}>
@@ -354,10 +354,10 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
               {[1, 2, 3, 4, 5].map((index) => {
                 const photoUri = profilePhotos[index];
                 return (
-                  <View key={index} style={styles.additionalSlot}>
+                  <View key={index} style={[styles.additionalSlot, photoUri ? styles.additionalSlotFilled : null]}>
                     {uploadingIndex === index ? (
                       <View style={styles.slotLoader}>
-                        <ActivityIndicator size="small" color={COLORS.accent} />
+                        <AppLoader size="small" color={COLORS.accent} />
                       </View>
                     ) : photoUri ? (
                       <View style={styles.slotImageContainer}>
@@ -479,7 +479,7 @@ export default function ProfilePage({ session, onLogout, isDemoMode = false }: M
                 activeOpacity={0.85}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color={COLORS.white} />
+                  <AppLoader size="small" color={COLORS.white} />
                 ) : (
                   <>
                     <Check size={18} color={COLORS.white} strokeWidth={2.5} />
@@ -742,21 +742,29 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 320,
     backgroundColor: COLORS.cardBgIvory,
-    borderRadius: 22,
+    borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderColor: 'rgba(51, 16, 5, 0.15)',
     borderStyle: 'dashed',
     ...SHADOWS.md,
+  },
+  primaryCoverBoxFilled: {
+    borderStyle: 'solid',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderWidth: 1.5,
   },
   coverImageContainer: {
     width: '100%',
     height: '100%',
+    borderRadius: 24,
+    overflow: 'hidden',
     position: 'relative',
   },
   coverImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 24,
     resizeMode: 'cover',
   },
   coverBadge: {
@@ -841,15 +849,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   additionalSlot: {
-    width: 96,
-    height: 132,
+    width: 98,
+    height: 134,
     backgroundColor: COLORS.cardBgIvory,
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    borderColor: 'rgba(51, 16, 5, 0.15)',
     borderStyle: 'dashed',
     ...SHADOWS.sm,
+  },
+  additionalSlotFilled: {
+    borderStyle: 'solid',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderWidth: 1.5,
   },
   additionalUploadTrigger: {
     flex: 1,
@@ -876,11 +889,14 @@ const styles = StyleSheet.create({
   slotImageContainer: {
     width: '100%',
     height: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
     position: 'relative',
   },
   slotImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 18,
     resizeMode: 'cover',
   },
   slotLoader: {

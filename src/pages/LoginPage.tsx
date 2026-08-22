@@ -6,8 +6,8 @@ import {
   Animated,
   TouchableOpacity,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
+import AppLoader from '../components/AppLoader';
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import BottomSheet, { BottomSheetView, BottomSheetTextInput, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 
@@ -235,7 +235,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
           </Text>
 
           {signingIn ? (
-            <ActivityIndicator size="large" color={COLORS.primary} style={{ marginVertical: 20 }} />
+            <AppLoader size="large" color={COLORS.primary} style={{ marginVertical: 20 }} />
           ) : (
             <View style={styles.authButtonsContainer}>
               <AppleButton
@@ -324,7 +324,7 @@ export default function LoginPage({ onLoginSuccess }: LoginProps) {
           </View>
 
           {emailSigningIn ? (
-            <ActivityIndicator size="small" color={COLORS.primary} style={{ marginVertical: 12 }} />
+            <AppLoader size="small" color={COLORS.primary} style={{ marginVertical: 12 }} />
           ) : (
             <TouchableOpacity style={styles.sheetSubmitBtn} onPress={handleEmailAuthSubmit}>
               <Text style={styles.sheetSubmitBtnText}>Continue</Text>

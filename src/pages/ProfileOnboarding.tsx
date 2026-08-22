@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -23,6 +22,7 @@ import Geolocation from 'react-native-geolocation-service';
 import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import SkeletonImage from '../components/SkeletonImage';
+import AppLoader from '../components/AppLoader';
 
 interface ProfileOnboardingProps {
   session: any;
@@ -406,7 +406,7 @@ export default function ProfileOnboarding({
                       disabled={locating}
                     >
                       {locating ? (
-                        <ActivityIndicator size="small" color={COLORS.primaryText} />
+                        <AppLoader size="small" color={COLORS.primaryText} />
                       ) : (
                         <Text style={styles.locationBtnText}>Enable Location</Text>
                       )}
@@ -450,7 +450,7 @@ export default function ProfileOnboarding({
             <View style={styles.primaryCoverSlot}>
               {uploadingIndex === 0 ? (
                 <View style={styles.slotLoader}>
-                  <ActivityIndicator size="large" color={COLORS.accent} />
+                  <AppLoader size="large" color={COLORS.accent} />
                   <Text style={styles.uploadingText}>Uploading photo...</Text>
                 </View>
               ) : photos[0] ? (
@@ -507,7 +507,7 @@ export default function ProfileOnboarding({
                   <View key={index} style={styles.secondaryPhotoSlot}>
                     {uploadingIndex === index ? (
                       <View style={styles.slotLoader}>
-                        <ActivityIndicator size="small" color={COLORS.accent} />
+                        <AppLoader size="small" color={COLORS.accent} />
                       </View>
                     ) : photoUri ? (
                       <View style={styles.slotImageContainer}>
@@ -673,7 +673,7 @@ export default function ProfileOnboarding({
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color={COLORS.primaryText} />
+                <AppLoader size="small" color={COLORS.primaryText} />
               ) : (
                 <>
                   <Text style={styles.nextButtonText}>Let's Vibe!</Text>

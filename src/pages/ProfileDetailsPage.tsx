@@ -6,8 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
-  ActivityIndicator,
   Dimensions,
+  Alert,
 } from 'react-native';
 import {
   ArrowLeft,
@@ -20,6 +20,8 @@ import {
   Camera,
   Film,
   Play,
+  MoreVertical,
+  ShieldAlert,
 } from 'lucide-react-native';
 import { Linking } from 'react-native';
 
@@ -27,10 +29,12 @@ import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { DBProfile, getMatchArchetype } from '../shared/types';
 import { ArchetypeIcon } from '../components/ArchetypeBadge';
 import SkeletonImage from '../components/SkeletonImage';
+import ReportModal from '../components/ReportModal';
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { useProfile } from '../shared/queries/useProfile';
 import { useMatchScore } from '../shared/queries/useMatches';
 import { usePartnerShareHistory } from '../shared/queries/useShareHistory';
+import { useBlockUser } from '../shared/queries/useSafety';
 
 interface ProfileDetailsPageProps {
   route?: any;
@@ -54,6 +58,57 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
   const profile = profileFromQuery || initialProfile;
   const matchScore = typeof score === 'number' ? score : (liveScore ?? null);
   const archetype = matchScore !== null ? getMatchArchetype(matchScore) : null;
+
+  const [showReportModal, setShowReportModal] = useState(false);
+  const blockMutation = useBlockUser();
+
+  const handleSafetyOptions = () => {
+    Alert.alert(
+      'Profile Options',
+      `Manage profile for ${name}`,
+      [
+        {
+          text: 'Report Profile',
+          style: 'destructive',
+          onPress: () => setShowReportModal(true),
+        },
+        {
+          text: 'Block User',
+          style: 'destructive',
+          onPress: handleBlockUser,
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleBlockUser = async () => {
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${name}? You will no longer match with them or see their profile.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockMutation.mutateAsync({
+                blockerId: currentUserId,
+                blockedUserId: targetUserId,
+                matchId: activeChatMatchId,
+                isDemoMode,
+              });
+              navigation.navigate('Dashboard');
+              Alert.alert('User Blocked', 'This user has been blocked.');
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Failed to block user.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleBack = () => {
     navigation.goBack();
@@ -93,7 +148,14 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
             <ArrowLeft size={22} color={COLORS.primaryText} strokeWidth={2.5} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{firstName}'s Profile</Text>
-          <View style={{ width: 44 }} />
+          <TouchableOpacity
+            style={styles.circularBackBtn}
+            onPress={handleSafetyOptions}
+            activeOpacity={0.8}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <MoreVertical size={20} color={COLORS.primaryText} strokeWidth={2.2} />
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -329,6 +391,18 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
             </TouchableOpacity>
           )}
         </ScrollView>
+
+        {/* Safety Report & Block Modal */}
+        <ReportModal
+          visible={showReportModal}
+          onClose={() => setShowReportModal(false)}
+          reporterId={currentUserId}
+          reportedUserId={targetUserId}
+          reportedUserName={name}
+          matchId={activeChatMatchId}
+          isDemoMode={isDemoMode}
+          onReportSuccess={() => navigation.goBack()}
+        />
       </View>
     </View>
   );

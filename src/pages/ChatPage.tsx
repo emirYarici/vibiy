@@ -8,13 +8,13 @@ import {
   Image,
   TextInput,
   Alert,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Linking,
 } from 'react-native';
+import AppLoader from '../components/AppLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera, Sparkles } from 'lucide-react-native';
+import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera, Sparkles, MoreVertical, ShieldAlert } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
@@ -23,6 +23,7 @@ import { DBProfile, MatchRecord, MessageRecord, ShareHistoryItem, getMatchArchet
 import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
 import SkeletonImage from '../components/SkeletonImage';
 import CompareVibesSheet from '../components/CompareVibesSheet';
+import ReportModal from '../components/ReportModal';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import {
   DEMO_PROFILES,
@@ -34,6 +35,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMatches, useUnmatch } from '../shared/queries/useMatches';
 import { useChatMessages, useSendMessage, CHAT_QUERY_KEYS } from '../shared/queries/useChatMessages';
 import { usePartnerShareHistory } from '../shared/queries/useShareHistory';
+import { useBlockUser } from '../shared/queries/useSafety';
 
 interface ChatPageProps {
   route: any;
@@ -53,7 +55,7 @@ const InstagramThumbnail = ({
   height,
   borderRadius = RADIUS.sm,
 }: {
-  url: string;
+  url?: string;
   thumbnailUrl?: string;
   size?: number;
   width?: number;
@@ -65,6 +67,12 @@ const InstagramThumbnail = ({
     ? directThumbnailUrl || (url ? getInstagramThumbnail(url) : null)
     : null;
 
+  useEffect(() => {
+    if (thumbnailUrl) {
+      Image.prefetch(thumbnailUrl).catch(() => {});
+    }
+  }, [thumbnailUrl]);
+
   const w = width || size;
   const h = height || size;
 
@@ -72,9 +80,16 @@ const InstagramThumbnail = ({
     <View style={[styles.thumbContainer, { width: w, height: h, borderRadius }]}>
       {thumbnailUrl ? (
         <SkeletonImage
-          source={{ uri: thumbnailUrl }}
+          source={{
+            uri: thumbnailUrl,
+            cache: 'force-cache',
+            headers: {
+              'Cache-Control': 'public, max-age=31536000, immutable',
+            },
+          }}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
+          showLoader={false}
           onError={() => setHasError(true)}
         />
       ) : (
@@ -103,9 +118,11 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
 
   const sendMessageMutation = useSendMessage();
   const unmatchMutation = useUnmatch();
+  const blockMutation = useBlockUser();
 
   const [typedMessage, setTypedMessage] = useState(initialMessage || '');
   const [showCompareSheet, setShowCompareSheet] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // Collapsible Share Reels accordions
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
@@ -129,26 +146,20 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
             table: 'messages',
             filter: `match_id=eq.${matchId}`,
           },
-          (payload) => {
-            const newMsg = payload.new as MessageRecord;
-            console.log('🔥 [REALTIME TRIGGERED] New message received for match:', matchId, newMsg.content);
-
-            queryClient.setQueryData<MessageRecord[]>(
-              CHAT_QUERY_KEYS.messages(matchId),
-              (old) => {
-                if (!old) return [newMsg];
-                if (old.some((m) => m.id === newMsg.id)) return old;
-                // De-duplicate optimistic insertions
-                const filtered = old.filter((m) => !(m.id.startsWith('temp-') && m.content === newMsg.content));
-                return [...filtered, newMsg];
-              }
-            );
+          (payload: any) => {
+            console.log('⚡️ Realtime Message Received:', payload.new);
+            queryClient.invalidateQueries({
+              queryKey: CHAT_QUERY_KEYS.messages(matchId),
+            });
+            setTimeout(() => {
+              chatScrollViewRef.current?.scrollToEnd({ animated: true });
+            }, 100);
           }
         )
         .subscribe();
 
       return () => {
-        console.log(`🔌 Unsubscribing from Supabase Realtime match channel: ${matchId}`);
+        console.log(`🔌 Unsubscribing from match channel: ${matchId}`);
         supabase.removeChannel(channel);
       };
     }
@@ -161,27 +172,83 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
     }, 100);
   }, [messages]);
 
-  const handleUnmatch = async () => {
-    Alert.alert('Unmatch User', 'Are you sure you want to end this connection?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Unmatch',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await unmatchMutation.mutateAsync({
-              matchId,
-              currentUserId,
-              isDemoMode,
-            });
-            navigation.goBack();
-            Alert.alert('Unmatched', 'You have successfully unmatched this user.');
-          } catch (err: any) {
-            Alert.alert('Error', err.message || 'Failed to unmatch.');
-          }
+  const handleSafetyOptions = () => {
+    Alert.alert(
+      'Conversation Options',
+      `Manage your conversation with ${partnerProfile?.full_name?.split(' ')[0] || 'this user'}`,
+      [
+        {
+          text: 'Report User',
+          style: 'destructive',
+          onPress: () => setShowReportModal(true),
         },
-      },
-    ]);
+        {
+          text: 'Block User',
+          style: 'destructive',
+          onPress: handleBlockUser,
+        },
+        {
+          text: 'End Chat & Delete Messages',
+          style: 'destructive',
+          onPress: handleUnmatch,
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleBlockUser = async () => {
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${partnerProfile?.full_name?.split(' ')[0] || 'this user'}? They will no longer be able to message or match with you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockMutation.mutateAsync({
+                blockerId: currentUserId,
+                blockedUserId: partnerId,
+                matchId,
+                isDemoMode,
+              });
+              navigation.navigate('Dashboard');
+              Alert.alert('User Blocked', 'This user has been blocked.');
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to block user.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleUnmatch = async () => {
+    Alert.alert(
+      'End Chat & Unmatch',
+      'Are you sure you want to end this connection? All conversation messages will be permanently deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Chat',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await unmatchMutation.mutateAsync({
+                matchId,
+                currentUserId,
+                isDemoMode,
+              });
+              navigation.navigate('Dashboard');
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Failed to end chat.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleSendMessage = async () => {
@@ -214,7 +281,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.accent} />
+        <AppLoader size="large" color={COLORS.accent} />
         <Text style={styles.loadingText}>Opening chat room...</Text>
       </View>
     );
@@ -275,8 +342,13 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               return <ArchetypePillBadge archetype={archetype} size="md" />;
             })()}
 
-            <TouchableOpacity style={styles.unmatchIconBtn} onPress={handleUnmatch} activeOpacity={0.7}>
-              <Trash2 size={18} color={COLORS.danger} strokeWidth={2} />
+            <TouchableOpacity
+              style={styles.unmatchIconBtn}
+              onPress={handleSafetyOptions}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <MoreVertical size={20} color={COLORS.textPrimary} strokeWidth={2} />
             </TouchableOpacity>
           </View>
         </View>
@@ -490,6 +562,18 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
           setTypedMessage(prompt);
           setShowCompareSheet(false);
         }}
+      />
+
+      {/* Safety Report & Block Modal (Apple UGC Guideline 1.2 Compliance) */}
+      <ReportModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        reporterId={currentUserId}
+        reportedUserId={partnerId}
+        reportedUserName={partnerProfile?.full_name?.split(' ')[0] || 'User'}
+        matchId={matchId}
+        isDemoMode={isDemoMode}
+        onReportSuccess={() => navigation.goBack()}
       />
     </View>
   </BottomSheetModalProvider>
