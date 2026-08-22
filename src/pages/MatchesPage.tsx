@@ -4,6 +4,7 @@ import {
   Text,
   View,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   Dimensions,
@@ -16,21 +17,22 @@ import AnimatedReanimated, {
   Extrapolation,
   type SharedValue,
 } from 'react-native-reanimated';
-import AppLoader from '../components/AppLoader';
+import AppLoader from '../shared/ui/AppLoader/AppLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Heart, MessageCircle, Sparkles, Film, ArrowRight, ChevronRight } from 'lucide-react-native';
 
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { DBProfile, MatchRecord, MessageRecord, getMatchArchetype } from '../shared/types';
-import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
-import SkeletonImage from '../components/SkeletonImage';
-import DailyDropCountdown from '../components/DailyDropCountdown';
-import DailyMatchCard from '../components/DailyMatchCard';
-import CompareVibesSheet from '../components/CompareVibesSheet';
+import { ArchetypeIcon, ArchetypePillBadge } from '../entities/match/ui/ArchetypeBadge';
+import SkeletonImage from '../shared/ui/SkeletonImage/SkeletonImage';
+import DailyDropCountdown from '../widgets/DailyDropCountdown/DailyDropCountdown';
+import DailyMatchCard, { DAILY_CARD_WIDTH } from '../entities/match/ui/DailyMatchCard';
+import CompareVibesSheet from '../features/compare-vibes/ui/CompareVibesSheet';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useQueryClient } from '@tanstack/react-query';
-import { useMatches, MATCHES_QUERY_KEYS, MatchesData } from '../shared/queries/useMatches';
+import { useMatches, MATCHES_QUERY_KEYS, MatchesData } from '../entities/match/api/useMatches';
+import { useUnmatchUser } from '../features/safety/api/useSafety';
 
 import {
   DEMO_PROFILES,
@@ -62,6 +64,9 @@ export const parseReferredMessage = (content: string) => {
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const DAILY_CARD_GAP = 14;
+const DAILY_ITEM_SIZE = DAILY_CARD_WIDTH + DAILY_CARD_GAP;
+const DAILY_CAROUSEL_PADDING_HORIZONTAL = (SCREEN_WIDTH - DAILY_CARD_WIDTH) / 2;
 interface ConversationListItemProps {
   item: {
     matchId: string;
@@ -168,12 +173,15 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
   };
 
   const handleOpenProfile = (profile: DBProfile, score: number) => {
+    const match = matches.find(
+      (m) => m.user_a === profile.id || m.user_b === profile.id
+    );
     navigation.navigate('ProfileDetails', {
       profile,
       score,
       session,
       isDemoMode,
-      activeChatMatchId: null,
+      activeChatMatchId: match?.id || null,
       onChatNow: () => handleStartChat(profile),
       onCompareVibes: () => setCompareTarget({ profile, score }),
     });
@@ -314,86 +322,49 @@ export default function MatchesPage({ session, isDemoMode, navigation }: Matches
       ) : (
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* 1. Daily Drop Countdown Header */}
-          <DailyDropCountdown totalDailyMatches={todayDrops.length} />
+          <DailyDropCountdown totalMatchesCount={matchedUsers.length} />
 
-          {/* 2. Daily Drops Section (Only shown when there are actual drops today) */}
-          {todayDrops.length > 0 && (
+          {/* 2. New Match Drops Big Portrait Cards Section (Matches with no messages yet) */}
+          {newMatches.length > 0 && (
             <View style={styles.dailyDropsSection}>
               <View style={styles.sectionHeaderRow}>
                 <View style={styles.sectionHeaderTitleGroup}>
                   <Sparkles size={14} color={COLORS.accent} />
-                  <Text style={styles.sectionHeaderTitle}>TODAY'S DAILY DROPS</Text>
+                  <Text style={styles.sectionHeaderTitle}>NEW MATCH DROPS</Text>
                 </View>
                 <View style={styles.cardCountBadge}>
                   <Text style={styles.cardCountText}>
-                    {todayDrops.length} MATCH{todayDrops.length === 1 ? '' : 'ES'}
+                    {newMatches.length >= 3 ? '3/3 FULL' : `${newMatches.length} NEW`}
                   </Text>
                 </View>
               </View>
 
-              <ScrollView
+              <FlatList
+                data={newMatches}
+                keyExtractor={(item) => item.matchId}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.dailyDropsScroll}
-              >
-                {todayDrops.map((item) => (
-                  <DailyMatchCard
-                    key={item.matchId}
-                    matchId={item.matchId}
-                    profile={item.profile}
-                    score={item.score}
-                    onOpenProfile={handleOpenProfile}
-                    onCompareVibes={(prof, sc) => setCompareTarget({ profile: prof, score: sc })}
-                    onStartChat={handleStartChat}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* 3. Horizontal Active Stories / New Matches */}
-          {newMatches.length > 0 && (
-            <View style={styles.storiesSection}>
-              <Text style={styles.storiesSectionLabel}>NEW DISCOVERIES</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.storiesScroll}
-              >
-                {newMatches.map((item) => {
-                  const archetype = getMatchArchetype(item.score);
-                  return (
-                    <TouchableOpacity
-                      key={item.matchId}
-                      style={styles.storyItem}
-                      activeOpacity={0.85}
-                      onPress={() => handleOpenProfile(item.profile, item.score)}
-                    >
-                      <View style={styles.storyAvatarWrapper}>
-                        <SkeletonImage
-                          source={{
-                            uri:
-                              (item.profile.photos && item.profile.photos[0]) ||
-                              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
-                          }}
-                          style={styles.storyAvatar}
-                        />
-                        <View style={styles.onlineDot} />
-                        {/* Lucide Archetype Icon Badge on Story Avatar */}
-                        <View style={[styles.storyArchetypeBadge, { backgroundColor: archetype.bgColor }]}>
-                          <ArchetypeIcon type={archetype.type} size={11} color={archetype.textColor} />
-                        </View>
-                      </View>
-                      <Text style={styles.storyName} numberOfLines={1}>
-                        {item.profile.full_name.split(' ')[0]}
-                      </Text>
-                      <Text style={styles.storyArchetypeLabel} numberOfLines={1}>
-                        {archetype.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                decelerationRate="fast"
+                snapToOffsets={newMatches.map((_, i) => i * DAILY_ITEM_SIZE)}
+                snapToAlignment="start"
+                nestedScrollEnabled
+                contentContainerStyle={[
+                  styles.dailyDropsScroll,
+                  { paddingHorizontal: DAILY_CAROUSEL_PADDING_HORIZONTAL },
+                ]}
+                renderItem={({ item, index }) => (
+                  <View style={{ marginRight: index === newMatches.length - 1 ? 0 : DAILY_CARD_GAP }}>
+                    <DailyMatchCard
+                      matchId={item.matchId}
+                      profile={item.profile}
+                      score={item.score}
+                      onOpenProfile={handleOpenProfile}
+                      onCompareVibes={(prof, sc) => setCompareTarget({ profile: prof, score: sc })}
+                      onStartChat={handleStartChat}
+                    />
+                  </View>
+                )}
+              />
             </View>
           )}
 
@@ -526,7 +497,7 @@ const styles = StyleSheet.create({
     color: COLORS.accent,
   },
   dailyDropsScroll: {
-    paddingHorizontal: 20,
+    paddingVertical: 6,
   },
   storiesSection: {
     marginBottom: 20,

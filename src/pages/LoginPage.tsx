@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import AppLoader from '../components/AppLoader';
+import AppLoader from '../shared/ui/AppLoader/AppLoader';
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import BottomSheet, { BottomSheetView, BottomSheetTextInput, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 

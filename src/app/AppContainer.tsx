@@ -26,12 +26,12 @@ import LoginPage from '../pages/LoginPage';
 import ProfilePage from '../pages/ProfilePage';
 import MatchesPage from '../pages/MatchesPage';
 import SharePage from '../pages/SharePage';
-import TabBar from '../components/TabBar';
+import TabBar from '../shared/ui/TabBar/TabBar';
 import ProfileOnboarding from '../pages/ProfileOnboarding';
-import AppLoader from '../components/AppLoader';
+import AppLoader from '../shared/ui/AppLoader/AppLoader';
 import ProfileDetailsPage from '../pages/ProfileDetailsPage';
 import ChatPage from '../pages/ChatPage';
-import { useProfile } from '../shared/queries/useProfile';
+import { useProfile } from '../entities/profile/api/useProfile';
 
 const Stack = createNativeStackNavigator();
 export const navigationRef = createNavigationContainerRef<any>();

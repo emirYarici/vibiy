@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { PROFILE_QUERY_KEYS } from '../shared/queries/useProfile';
+import { PROFILE_QUERY_KEYS } from '../entities/profile/api/useProfile';
 import {
   StyleSheet,
   Text,
@@ -21,8 +21,14 @@ import Geolocation from 'react-native-geolocation-service';
 
 import { uploadProfilePhoto, supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
-import SkeletonImage from '../components/SkeletonImage';
-import AppLoader from '../components/AppLoader';
+import SkeletonImage from '../shared/ui/SkeletonImage/SkeletonImage';
+import AppLoader from '../shared/ui/AppLoader/AppLoader';
+import StepInfo from '../features/onboarding/ui/StepInfo';
+import StepGender from '../features/onboarding/ui/StepGender';
+import StepLocation from '../features/onboarding/ui/StepLocation';
+import StepBio from '../features/onboarding/ui/StepBio';
+import StepPhotos from '../features/onboarding/ui/StepPhotos';
+import StepIntro from '../features/onboarding/ui/StepIntro';
 
 interface ProfileOnboardingProps {
   session: any;
@@ -295,334 +301,57 @@ export default function ProfileOnboarding({
     switch (currentStep) {
       case 1:
         return (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Who are you?</Text>
-            <Text style={styles.stepSubtitle}>Let's start with the basics.</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Your Name</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="What should we call you?"
-                placeholderTextColor={COLORS.textDarkSecondary}
-                value={name}
-                onChangeText={setName}
-                autoCorrect={false}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Age</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Must be 18 or older"
-                placeholderTextColor={COLORS.textDarkSecondary}
-                keyboardType="numeric"
-                value={age}
-                onChangeText={setAge}
-                maxLength={3}
-              />
-            </View>
-          </View>
+          <StepInfo
+            name={name}
+            setName={setName}
+            age={age}
+            setAge={setAge}
+            styles={styles}
+          />
         );
       case 2:
         return (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Your Profile</Text>
-            <Text style={styles.stepSubtitle}>Select your gender and who you want to match with.</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>I am a</Text>
-              <View style={styles.pillContainer}>
-                {(['man', 'woman', 'non_binary'] as const).map((g) => {
-                  const label = g === 'man' ? 'Man' : g === 'woman' ? 'Woman' : 'Non-binary';
-                  const isSelected = gender === g;
-                  return (
-                    <TouchableOpacity
-                      key={g}
-                      style={[styles.pillButton, isSelected && styles.pillButtonActive]}
-                      onPress={() => setGender(g)}
-                    >
-                      <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Show me</Text>
-              <View style={styles.pillContainer}>
-                {(['men', 'women', 'everyone'] as const).map((p) => {
-                  const label = p === 'men' ? 'Men' : p === 'women' ? 'Women' : 'Everyone';
-                  const isSelected = preference === p;
-                  return (
-                    <TouchableOpacity
-                      key={p}
-                      style={[styles.pillButton, isSelected && styles.pillButtonActive]}
-                      onPress={() => setPreference(p)}
-                    >
-                      <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
+          <StepGender
+            gender={gender}
+            setGender={setGender}
+            preference={preference}
+            setPreference={setPreference}
+            styles={styles}
+          />
         );
       case 3:
         return (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Your Location</Text>
-            <Text style={styles.stepSubtitle}>
-              Vibiy uses your location to discover connections nearby.
-            </Text>
-
-            <View style={styles.locationContainer}>
-              <View style={styles.locationCard}>
-                <View style={styles.locationIconBg}>
-                  <MapPin size={32} color={COLORS.accent} />
-                </View>
-                
-                {latitude && longitude ? (
-                  <>
-                    <Text style={styles.locationSuccessTitle}>📍 Location Captured!</Text>
-                    <Text style={styles.locationSuccessCoords}>
-                      {latitude.toFixed(4)}° N, {longitude.toFixed(4)}° E
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.locationPromptText}>
-                      We need permission to access your device's location services.
-                    </Text>
-                    <TouchableOpacity
-                      style={[styles.locationBtn, locating && styles.locationBtnDisabled]}
-                      onPress={captureLocation}
-                      disabled={locating}
-                    >
-                      {locating ? (
-                        <AppLoader size="small" color={COLORS.primaryText} />
-                      ) : (
-                        <Text style={styles.locationBtnText}>Enable Location</Text>
-                      )}
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
-          </View>
+          <StepLocation
+            latitude={latitude}
+            longitude={longitude}
+            locating={locating}
+            captureLocation={captureLocation}
+            styles={styles}
+          />
         );
       case 4:
         return (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Tell us your vibe</Text>
-            <Text style={styles.stepSubtitle}>Write a short bio so matches can get to know you.</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Short Bio</Text>
-              <TextInput
-                style={[styles.textInput, styles.textArea]}
-                placeholder="What are your hobbies? What music do you listen to? Share your style..."
-                placeholderTextColor={COLORS.textDarkSecondary}
-                multiline
-                numberOfLines={5}
-                value={bio}
-                onChangeText={setBio}
-              />
-            </View>
-          </View>
+          <StepBio
+            bio={bio}
+            setBio={setBio}
+            styles={styles}
+          />
         );
       case 5:
         return (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepTitle}>Upload your photos</Text>
-            <Text style={styles.stepSubtitle}>
-              Add a stunning primary cover photo, plus additional photos to complete your vibe.
-            </Text>
-
-            {/* Primary Cover Card */}
-            <Text style={styles.slotSectionLabel}>PRIMARY COVER PHOTO</Text>
-            <View style={styles.primaryCoverSlot}>
-              {uploadingIndex === 0 ? (
-                <View style={styles.slotLoader}>
-                  <AppLoader size="large" color={COLORS.accent} />
-                  <Text style={styles.uploadingText}>Uploading photo...</Text>
-                </View>
-              ) : photos[0] ? (
-                <View style={styles.slotImageContainer}>
-                  <SkeletonImage source={{ uri: photos[0] }} style={styles.slotImage} />
-                  <View style={styles.primaryCoverBadge}>
-                    <Text style={styles.primaryCoverBadgeText}>PRIMARY COVER</Text>
-                  </View>
-                  <View style={styles.coverActionButtons}>
-                    <TouchableOpacity
-                      style={styles.changeCoverBtn}
-                      onPress={() => handlePhotoSelect(0)}
-                    >
-                      <Camera size={14} color={COLORS.white} />
-                      <Text style={styles.changeCoverBtnText}>Change</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deleteCoverBtn}
-                      onPress={() => handlePhotoDelete(0)}
-                    >
-                      <Text style={styles.deleteBadgeText}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.primaryUploadTrigger}
-                  onPress={() => handlePhotoSelect(0)}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.primaryUploadIconBg}>
-                    <Camera size={28} color={COLORS.textDark} strokeWidth={2} />
-                  </View>
-                  <Text style={styles.primaryUploadTitle}>Add Primary Photo</Text>
-                  <Text style={styles.primaryUploadSubtitle}>
-                    This is the main portrait matches will see on your card
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Additional Photos Section */}
-            <Text style={[styles.slotSectionLabel, { marginTop: 24 }]}>
-              MORE PHOTOS ({photos.slice(1).filter(Boolean).length}/5)
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.secondaryPhotosScroll}
-            >
-              {[1, 2, 3, 4, 5].map((index) => {
-                const photoUri = photos[index];
-                return (
-                  <View key={index} style={styles.secondaryPhotoSlot}>
-                    {uploadingIndex === index ? (
-                      <View style={styles.slotLoader}>
-                        <AppLoader size="small" color={COLORS.accent} />
-                      </View>
-                    ) : photoUri ? (
-                      <View style={styles.slotImageContainer}>
-                        <SkeletonImage source={{ uri: photoUri }} style={styles.slotImage} />
-                        <TouchableOpacity
-                          style={styles.secondaryDeleteBtn}
-                          onPress={() => handlePhotoDelete(index)}
-                        >
-                          <Text style={styles.deleteBadgeText}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.secondaryUploadTrigger}
-                        onPress={() => handlePhotoSelect(index)}
-                        activeOpacity={0.7}
-                      >
-                        <Camera size={18} color={COLORS.textDarkSecondary} strokeWidth={1.8} />
-                        <Text style={styles.secondaryUploadText}>Add</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })}
-            </ScrollView>
-          </View>
+          <StepPhotos
+            photos={photos}
+            uploadingIndex={uploadingIndex}
+            handlePhotoSelect={handlePhotoSelect}
+            handlePhotoDelete={handlePhotoDelete}
+            styles={styles}
+          />
         );
       case 6:
         return (
-          <View style={styles.stepContent}>
-            <View style={styles.shareHeaderBadge}>
-              <Zap size={14} color={COLORS.textDark} />
-              <Text style={styles.shareHeaderBadgeText}>INSTAGRAM DIRECT SHARE</Text>
-            </View>
-
-            <Text style={styles.stepTitle}>Share with 1 Tap</Text>
-            <Text style={styles.stepSubtitle}>
-              Send Instagram Reels directly to Vibiy using the native iOS Share Sheet — no copying links needed!
-            </Text>
-
-            {/* 3 Step Visual Sequence */}
-            <View style={styles.shareGuideContainer}>
-              {/* Step 1 */}
-              <View style={styles.shareStepCard}>
-                <View style={styles.shareStepNumberCircle}>
-                  <Text style={styles.shareStepNumberText}>1</Text>
-                </View>
-                <View style={styles.shareStepBody}>
-                  <View style={styles.shareStepTitleRow}>
-                    <Text style={styles.shareStepTitle}>Find a Reel on Instagram</Text>
-                    <Send size={16} color={COLORS.textDarkSecondary} />
-                  </View>
-                  <Text style={styles.shareStepDesc}>
-                    When watching a Reel that matches your vibe, tap the <Text style={styles.boldText}>Share ✈️</Text> icon.
-                  </Text>
-                </View>
-              </View>
-
-              {/* Step 2 */}
-              <View style={styles.shareStepCard}>
-                <View style={styles.shareStepNumberCircle}>
-                  <Text style={styles.shareStepNumberText}>2</Text>
-                </View>
-                <View style={styles.shareStepBody}>
-                  <View style={styles.shareStepTitleRow}>
-                    <Text style={styles.shareStepTitle}>Choose Vibiy in Share Sheet</Text>
-                    <Share2 size={16} color={COLORS.textDarkSecondary} />
-                  </View>
-                  <Text style={styles.shareStepDesc}>
-                    Tap <Text style={styles.boldText}>Share to...</Text> and select <Text style={styles.boldText}>Vibiy</Text> from your iOS share menu.
-                  </Text>
-                </View>
-              </View>
-
-              {/* Step 3 */}
-              <View style={styles.shareStepCard}>
-                <View style={styles.shareStepNumberCircle}>
-                  <Text style={styles.shareStepNumberText}>3</Text>
-                </View>
-                <View style={styles.shareStepBody}>
-                  <View style={styles.shareStepTitleRow}>
-                    <Text style={styles.shareStepTitle}>Auto-Synced & Analyzed</Text>
-                    <Sparkles size={16} color={COLORS.accent} />
-                  </View>
-                  <Text style={styles.shareStepDesc}>
-                    Vibiy instantly receives the reel, analyzes the vibe with AI, and counts it toward your daily goal!
-                  </Text>
-                </View>
-              </View>
-
-              {/* Pro Tip Callout */}
-              <View style={styles.proTipCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Text style={{ fontSize: 14 }}>💡</Text>
-                  <Text style={styles.proTipTitle}>iOS Share Setup</Text>
-                </View>
-                <Text style={styles.proTipText}>
-                  Don't see Vibiy in the share row? Scroll right, tap <Text style={styles.boldText}>More (⋯)</Text>, and add <Text style={styles.boldText}>Vibiy</Text> to your <Text style={styles.boldText}>Favorites</Text>.
-                </Text>
-              </View>
-
-              {/* Rule of 3 Banner */}
-              <View style={styles.ruleBanner}>
-                <View style={styles.ruleFlameIconBg}>
-                  <Flame size={20} color={COLORS.danger} fill={COLORS.accent} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.ruleBannerTitle}>3 Reels Every Day 🔥</Text>
-                  <Text style={styles.ruleBannerSub}>
-                    Share 3 Reels daily before midnight to receive your next batch of matched connections.
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
+          <StepIntro
+            styles={styles}
+          />
         );
       default:
         return null;
@@ -812,7 +541,7 @@ const styles = StyleSheet.create({
   slotSectionLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: COLORS.textDarkSecondary,
+    color: COLORS.textPrimary,
     letterSpacing: 1,
     marginBottom: 8,
   },
@@ -865,21 +594,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
-  },
-  primaryCoverBadge: {
-    position: 'absolute',
-    bottom: 14,
-    left: 14,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: RADIUS.pill,
-  },
-  primaryCoverBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.white,
-    letterSpacing: 0.5,
   },
   coverActionButtons: {
     position: 'absolute',

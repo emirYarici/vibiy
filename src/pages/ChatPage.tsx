@@ -12,7 +12,7 @@ import {
   Platform,
   Linking,
 } from 'react-native';
-import AppLoader from '../components/AppLoader';
+import AppLoader from '../shared/ui/AppLoader/AppLoader';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Send, User, Trash2, X, ChevronDown, ChevronUp, ArrowLeft, Play, Film, Camera, Sparkles, MoreVertical, ShieldAlert } from 'lucide-react-native';
 
@@ -20,10 +20,10 @@ import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { CONFIG } from '../shared/config';
 import { DBProfile, MatchRecord, MessageRecord, ShareHistoryItem, getMatchArchetype } from '../shared/types';
-import { ArchetypeIcon, ArchetypePillBadge } from '../components/ArchetypeBadge';
-import SkeletonImage from '../components/SkeletonImage';
-import CompareVibesSheet from '../components/CompareVibesSheet';
-import ReportModal from '../components/ReportModal';
+import { ArchetypeIcon, ArchetypePillBadge } from '../entities/match/ui/ArchetypeBadge';
+import SkeletonImage from '../shared/ui/SkeletonImage/SkeletonImage';
+import CompareVibesSheet from '../features/compare-vibes/ui/CompareVibesSheet';
+import ReportModal from '../features/safety/ui/ReportModal';
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import {
   DEMO_PROFILES,
@@ -32,74 +32,16 @@ import {
 } from '../shared/mockData';
 import { parseReferredMessage } from './MatchesPage'; // Re-use helper since it parses message reels cleanly
 import { useQueryClient } from '@tanstack/react-query';
-import { useMatches, useUnmatch } from '../shared/queries/useMatches';
-import { useChatMessages, useSendMessage, CHAT_QUERY_KEYS } from '../shared/queries/useChatMessages';
-import { usePartnerShareHistory } from '../shared/queries/useShareHistory';
-import { useBlockUser } from '../shared/queries/useSafety';
+import { useMatches, useUnmatch } from '../entities/match/api/useMatches';
+import { useChatMessages, useSendMessage, CHAT_QUERY_KEYS } from '../entities/message/api/useChatMessages';
+import { usePartnerShareHistory } from '../entities/video/api/useShareHistory';
+import { useBlockUser } from '../features/safety/api/useSafety';
+import InstagramThumbnail from '../shared/ui/InstagramThumbnail/InstagramThumbnail';
 
 interface ChatPageProps {
   route: any;
   navigation: any;
 }
-
-const getInstagramThumbnail = (url: string) => {
-  if (!url) return null;
-  return `${CONFIG.API_BASE_URL}/api/thumbnail?url=${encodeURIComponent(url)}`;
-};
-
-const InstagramThumbnail = ({
-  url,
-  thumbnailUrl: directThumbnailUrl,
-  size = 60,
-  width,
-  height,
-  borderRadius = RADIUS.sm,
-}: {
-  url?: string;
-  thumbnailUrl?: string;
-  size?: number;
-  width?: number;
-  height?: number;
-  borderRadius?: number;
-}) => {
-  const [hasError, setHasError] = useState(false);
-  const thumbnailUrl = !hasError
-    ? directThumbnailUrl || (url ? getInstagramThumbnail(url) : null)
-    : null;
-
-  useEffect(() => {
-    if (thumbnailUrl) {
-      Image.prefetch(thumbnailUrl).catch(() => {});
-    }
-  }, [thumbnailUrl]);
-
-  const w = width || size;
-  const h = height || size;
-
-  return (
-    <View style={[styles.thumbContainer, { width: w, height: h, borderRadius }]}>
-      {thumbnailUrl ? (
-        <SkeletonImage
-          source={{
-            uri: thumbnailUrl,
-            cache: 'force-cache',
-            headers: {
-              'Cache-Control': 'public, max-age=31536000, immutable',
-            },
-          }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          showLoader={false}
-          onError={() => setHasError(true)}
-        />
-      ) : (
-        <View style={styles.thumbFallback}>
-          <Play size={Math.min(w, h) * 0.35} color={COLORS.textMuted} fill={COLORS.textMuted} />
-        </View>
-      )}
-    </View>
-  );
-};
 
 export default function ChatPage({ route, navigation }: ChatPageProps) {
   const { matchId, session, isDemoMode, initialMessage } = route.params || {};
@@ -348,7 +290,7 @@ export default function ChatPage({ route, navigation }: ChatPageProps) {
               activeOpacity={0.7}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <MoreVertical size={20} color={COLORS.textPrimary} strokeWidth={2} />
+              <ShieldAlert size={19} color={COLORS.textDark} strokeWidth={2.2} />
             </TouchableOpacity>
           </View>
         </View>

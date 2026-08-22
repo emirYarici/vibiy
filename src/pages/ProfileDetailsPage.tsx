@@ -9,6 +9,14 @@ import {
   Dimensions,
   Alert,
 } from 'react-native';
+import AnimatedReanimated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate as reanimatedInterpolate,
+  Extrapolation,
+  type SharedValue,
+} from 'react-native-reanimated';
 import {
   ArrowLeft,
   MessageCircle,
@@ -22,19 +30,20 @@ import {
   Play,
   MoreVertical,
   ShieldAlert,
+  UserX,
 } from 'lucide-react-native';
 import { Linking } from 'react-native';
 
 import { COLORS, RADIUS, SHADOWS } from '../shared/theme';
 import { DBProfile, getMatchArchetype } from '../shared/types';
-import { ArchetypeIcon } from '../components/ArchetypeBadge';
-import SkeletonImage from '../components/SkeletonImage';
-import ReportModal from '../components/ReportModal';
+import { ArchetypeIcon } from '../entities/match/ui/ArchetypeBadge';
+import SkeletonImage from '../shared/ui/SkeletonImage/SkeletonImage';
+import ReportModal from '../features/safety/ui/ReportModal';
 import { supabase, isSupabaseConfigured } from '../shared/api/supabase';
-import { useProfile } from '../shared/queries/useProfile';
-import { useMatchScore } from '../shared/queries/useMatches';
-import { usePartnerShareHistory } from '../shared/queries/useShareHistory';
-import { useBlockUser } from '../shared/queries/useSafety';
+import { useProfile } from '../entities/profile/api/useProfile';
+import { useMatchScore, useMatches } from '../entities/match/api/useMatches';
+import { usePartnerShareHistory } from '../entities/video/api/useShareHistory';
+import { useBlockUser, useUnmatchUser } from '../features/safety/api/useSafety';
 
 interface ProfileDetailsPageProps {
   route?: any;
@@ -43,30 +52,179 @@ interface ProfileDetailsPageProps {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Centered dimensions with peeking adjacent cards
+const PHOTO_CARD_WIDTH = Math.round(SCREEN_WIDTH * 0.82);
+const PHOTO_CARD_HEIGHT = 420;
+const PHOTO_GAP = 14;
+const PHOTO_ITEM_SIZE = PHOTO_CARD_WIDTH + PHOTO_GAP;
+const PHOTO_CAROUSEL_PADDING_HORIZONTAL = (SCREEN_WIDTH - PHOTO_CARD_WIDTH) / 2;
+
+interface MatchedProfileCarouselItemProps {
+  photoUri: string;
+  index: number;
+  total: number;
+  scrollX: SharedValue<number>;
+  archetype?: any;
+}
+
+function MatchedProfileCarouselItem({
+  photoUri,
+  index,
+  total,
+  scrollX,
+  archetype,
+}: MatchedProfileCarouselItemProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    const inputRange = [
+      (index - 1) * PHOTO_ITEM_SIZE,
+      index * PHOTO_ITEM_SIZE,
+      (index + 1) * PHOTO_ITEM_SIZE,
+    ];
+
+    const scale = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [0.90, 1, 0.90],
+      Extrapolation.CLAMP
+    );
+
+    const rotateY = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [-14, 0, 14],
+      Extrapolation.CLAMP
+    );
+
+    const opacity = reanimatedInterpolate(
+      scrollX.value,
+      inputRange,
+      [0.7, 1, 0.7],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      opacity,
+      transform: [
+        { perspective: 1000 },
+        { scale },
+        { rotateY: `${rotateY}deg` },
+      ],
+    };
+  });
+
+  const isCover = index === 0;
+
+  return (
+    <AnimatedReanimated.View
+      style={[
+        styles.carouselCardWrapper,
+        { marginRight: index === total - 1 ? 0 : PHOTO_GAP },
+        animatedStyle,
+      ]}
+    >
+      <View style={styles.photoSlotCard}>
+        <SkeletonImage source={{ uri: photoUri }} style={styles.photoSlotImage} />
+
+        {/* Counter Badge on Top Right */}
+        {total > 1 && (
+          <View style={styles.counterBadge}>
+            <Text style={styles.counterBadgeText}>
+              {index + 1} / {total}
+            </Text>
+          </View>
+        )}
+
+        {/* Secondary Photo Badge on Bottom Left */}
+        {!isCover && (
+          <View style={styles.photoBadge}>
+            <Text style={styles.photoBadgeText}>Photo {index + 1}</Text>
+          </View>
+        )}
+
+        {/* Archetype Floating Pill Badge on Cover Photo */}
+        {isCover && archetype && (
+          <View style={[styles.archetypeBadge, { backgroundColor: archetype.bgColor }]}>
+            <ArchetypeIcon type={archetype.type} size={13} color={archetype.textColor} />
+            <Text style={[styles.archetypeBadgeText, { color: archetype.textColor }]}>
+              {archetype.badgeText}
+            </Text>
+          </View>
+        )}
+      </View>
+    </AnimatedReanimated.View>
+  );
+}
+
 export default function ProfileDetailsPage({ route, navigation }: ProfileDetailsPageProps) {
   const { profile: initialProfile, activeChatMatchId, onChatNow, score, session, isDemoMode } = route?.params || {};
   
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const photoScrollX = useSharedValue(0);
+  const onPhotoScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      photoScrollX.value = event.contentOffset.x;
+    },
+  });
 
   const currentUserId = session?.user?.id || 'demo-guest-user';
   const targetUserId = initialProfile?.id;
 
   const { data: profileFromQuery } = useProfile(targetUserId, isDemoMode);
   const { data: liveScore } = useMatchScore(currentUserId, targetUserId, isDemoMode);
+  const { data: userMatchesData } = useMatches(currentUserId, isDemoMode);
   const { data: reelsHistory = [] } = usePartnerShareHistory(targetUserId, isDemoMode);
 
   const profile = profileFromQuery || initialProfile;
   const matchScore = typeof score === 'number' ? score : (liveScore ?? null);
   const archetype = matchScore !== null ? getMatchArchetype(matchScore) : null;
 
+  const resolvedMatchId = activeChatMatchId || userMatchesData?.matches?.find(
+    (m: any) => m.user_a === targetUserId || m.user_b === targetUserId
+  )?.id;
+
   const [showReportModal, setShowReportModal] = useState(false);
   const blockMutation = useBlockUser();
+  const unmatchMutation = useUnmatchUser();
+
+  const handleUnmatchUser = () => {
+    Alert.alert(
+      'Unmatch',
+      `Are you sure you want to unmatch with ${firstName}? This match will be removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unmatch',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (resolvedMatchId) {
+                await unmatchMutation.mutateAsync({
+                  userId: currentUserId,
+                  matchId: resolvedMatchId,
+                  isDemoMode,
+                });
+              }
+              navigation.goBack();
+              Alert.alert('Unmatched', `You have unmatched with ${firstName}.`);
+            } catch (err: any) {
+              Alert.alert('Error', err?.message || 'Failed to unmatch.');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleSafetyOptions = () => {
     Alert.alert(
       'Profile Options',
       `Manage profile for ${name}`,
       [
+        {
+          text: 'Unmatch User',
+          style: 'destructive',
+          onPress: handleUnmatchUser,
+        },
         {
           text: 'Report Profile',
           style: 'destructive',
@@ -117,6 +275,12 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
   const handleChatNow = () => {
     if (onChatNow) {
       onChatNow();
+    } else if (resolvedMatchId) {
+      navigation.navigate('Chat', {
+        matchId: resolvedMatchId,
+        session,
+        isDemoMode,
+      });
     }
   };
 
@@ -133,11 +297,10 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
   const validPhotos = (profile?.photos || []).filter(
     (p: any) => typeof p === 'string' && p.trim().length > 0
   );
-  const photosList = validPhotos.length > 0
-    ? validPhotos
-    : ['https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600'];
+  const photosList = validPhotos;
 
   const additionalPhotos = photosList.slice(1);
+  const snapOffsets = photosList.map((_: string, i: number) => i * PHOTO_ITEM_SIZE);
 
   return (
     <View style={styles.safeArea}>
@@ -154,7 +317,7 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
             activeOpacity={0.8}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <MoreVertical size={20} color={COLORS.primaryText} strokeWidth={2.2} />
+            <ShieldAlert size={19} color={COLORS.primaryText} strokeWidth={2.2} />
           </TouchableOpacity>
         </View>
 
@@ -162,100 +325,44 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Top Hero Photo Container */}
-          <View style={styles.photoWrapper}>
-            <SkeletonImage
-              source={{ uri: photosList[activePhotoIndex] || photosList[0] }}
-              style={styles.heroPhoto}
-            />
-
-            {/* Click Zones to flip hero photo */}
-            {photosList.length > 1 && (
-              <View style={styles.clickZones}>
-                <TouchableOpacity
-                  style={styles.clickZoneLeft}
-                  onPress={() => {
-                    if (activePhotoIndex > 0) {
-                      setActivePhotoIndex(activePhotoIndex - 1);
-                    } else {
-                      setActivePhotoIndex(photosList.length - 1);
-                    }
-                  }}
-                />
-                <TouchableOpacity
-                  style={styles.clickZoneRight}
-                  onPress={() => {
-                    if (activePhotoIndex < photosList.length - 1) {
-                      setActivePhotoIndex(activePhotoIndex + 1);
-                    } else {
-                      setActivePhotoIndex(0);
-                    }
-                  }}
-                />
-              </View>
-            )}
-
-            {/* Top Photo Indicators */}
-            {photosList.length > 1 && (
-              <View style={styles.indicators}>
-                {photosList.map((_: any, index: number) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.indicatorPip,
-                      activePhotoIndex === index && styles.activeIndicatorPip,
-                    ]}
+          {/* Top Photos Snapping Carousel */}
+          <View style={styles.carouselWrapper}>
+            {photosList.length > 0 ? (
+              <AnimatedReanimated.FlatList
+                data={photosList}
+                keyExtractor={(_, index) => index.toString()}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                snapToOffsets={snapOffsets}
+                decelerationRate="fast"
+                nestedScrollEnabled
+                contentContainerStyle={[
+                  styles.carouselContent,
+                  { paddingHorizontal: PHOTO_CAROUSEL_PADDING_HORIZONTAL },
+                ]}
+                onScroll={onPhotoScroll}
+                scrollEventThrottle={16}
+                renderItem={({ item: photoUri, index }) => (
+                  <MatchedProfileCarouselItem
+                    photoUri={photoUri}
+                    index={index}
+                    total={photosList.length}
+                    scrollX={photoScrollX}
+                    archetype={archetype}
                   />
-                ))}
-              </View>
-            )}
-
-            {/* Archetype Floating Pill Badge */}
-            {archetype && (
-              <View style={[styles.archetypeBadge, { backgroundColor: archetype.bgColor }]}>
-                <ArchetypeIcon type={archetype.type} size={13} color={archetype.textColor} />
-                <Text style={[styles.archetypeBadgeText, { color: archetype.textColor }]}>
-                  {archetype.badgeText}
-                </Text>
+                )}
+              />
+            ) : (
+              <View style={[styles.carouselContent, { paddingHorizontal: PHOTO_CAROUSEL_PADDING_HORIZONTAL }]}>
+                <View style={[styles.photoSlotCard, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
+                  <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                    <Camera size={30} color={COLORS.textDark} strokeWidth={2} />
+                  </View>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textDark }}>No Photos Added</Text>
+                </View>
               </View>
             )}
           </View>
-
-          {/* Horizontal Gallery Thumbnails Strip (When user has 2+ photos) */}
-          {photosList.length > 1 && (
-            <View style={styles.thumbnailStripWrapper}>
-              <View style={styles.thumbnailStripHeader}>
-                <Camera size={13} color={COLORS.textDarkSecondary} />
-                <Text style={styles.thumbnailStripTitle}>
-                  PHOTOS ({photosList.length})
-                </Text>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.thumbnailStripScroll}
-              >
-                {photosList.map((photoUri: string, idx: number) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.thumbCard,
-                      activePhotoIndex === idx && styles.activeThumbCard,
-                    ]}
-                    activeOpacity={0.85}
-                    onPress={() => setActivePhotoIndex(idx)}
-                  >
-                    <SkeletonImage source={{ uri: photoUri }} style={styles.thumbImage} />
-                    {activePhotoIndex === idx && (
-                      <View style={styles.activeThumbOverlay}>
-                        <Sparkles size={12} color={COLORS.white} fill={COLORS.white} />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
 
           {/* Main Editorial Details Card */}
           <View style={styles.editorialCard}>
@@ -380,16 +487,24 @@ export default function ProfileDetailsPage({ route, navigation }: ProfileDetails
           )}
 
           {/* Action Chat Button */}
-          {activeChatMatchId === null && (
-            <TouchableOpacity
-              style={styles.chatActionBtn}
-              onPress={handleChatNow}
-              activeOpacity={0.85}
-            >
-              <MessageCircle size={20} color={COLORS.textDark} strokeWidth={2.2} />
-              <Text style={styles.chatActionBtnText}>Start Conversation</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.chatActionBtn}
+            onPress={handleChatNow}
+            activeOpacity={0.85}
+          >
+            <MessageCircle size={20} color={COLORS.textDark} strokeWidth={2.2} />
+            <Text style={styles.chatActionBtnText}>Start Conversation</Text>
+          </TouchableOpacity>
+
+          {/* Unmatch Action Button (Placed directly below Start Conversation) */}
+          <TouchableOpacity
+            style={styles.unmatchProfileBtn}
+            onPress={handleUnmatchUser}
+            activeOpacity={0.75}
+          >
+            <UserX size={17} color={COLORS.danger || '#E4281F'} strokeWidth={2.2} />
+            <Text style={styles.unmatchProfileBtnText}>Unmatch {firstName}</Text>
+          </TouchableOpacity>
         </ScrollView>
 
         {/* Safety Report & Block Modal */}
@@ -440,54 +555,70 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 48,
+    paddingVertical: 12,
+    paddingBottom: 90,
   },
-  /* Hero Photo */
-  photoWrapper: {
-    width: '100%',
-    height: 420,
-    borderRadius: 28,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: COLORS.cardBgIvory,
-    ...SHADOWS.md,
+  /* Snapping Carousel */
+  carouselWrapper: {
+    height: 440,
+    justifyContent: 'center',
+    marginBottom: 6,
+    overflow: 'visible',
   },
-  heroPhoto: {
+  carouselContent: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    overflow: 'visible',
+  },
+  carouselCardWrapper: {
+    width: PHOTO_CARD_WIDTH,
+    height: PHOTO_CARD_HEIGHT,
+  },
+  photoSlotCard: {
     width: '100%',
     height: '100%',
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: COLORS.cardBgIvory,
+    position: 'relative',
+    ...SHADOWS.lg,
+  },
+  photoSlotImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 24,
     resizeMode: 'cover',
   },
-  clickZones: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-  },
-  clickZoneLeft: {
-    flex: 1,
-  },
-  clickZoneRight: {
-    flex: 1,
-  },
-  indicators: {
+  counterBadge: {
     position: 'absolute',
     top: 14,
-    left: 14,
     right: 14,
-    flexDirection: 'row',
-    gap: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: RADIUS.pill,
+    zIndex: 10,
   },
-  indicatorPip: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+  counterBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.white,
   },
-  activeIndicatorPip: {
-    backgroundColor: COLORS.white,
+  photoBadge: {
+    position: 'absolute',
+    bottom: 14,
+    left: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: RADIUS.pill,
+    zIndex: 10,
+  },
+  photoBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: COLORS.white,
+    letterSpacing: 0.5,
   },
   archetypeBadge: {
     position: 'absolute',
@@ -499,73 +630,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: RADIUS.pill,
+    zIndex: 10,
     ...SHADOWS.sm,
   },
   archetypeBadgeText: {
     fontSize: 12,
     fontWeight: '800',
   },
-  /* Thumbnail Gallery Strip */
-  thumbnailStripWrapper: {
-    marginTop: 12,
-    backgroundColor: COLORS.cardBgIvory,
-    borderRadius: 18,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
-    ...SHADOWS.sm,
-  },
-  thumbnailStripHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-    paddingHorizontal: 2,
-  },
-  thumbnailStripTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: COLORS.textDarkSecondary,
-    letterSpacing: 0.8,
-  },
-  thumbnailStripScroll: {
-    gap: 10,
-  },
-  thumbCard: {
-    width: 68,
-    height: 90,
-    borderRadius: 14,
-    overflow: 'hidden',
-    position: 'relative',
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  activeThumbCard: {
-    borderColor: COLORS.accent,
-    ...SHADOWS.sm,
-  },
-  thumbImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  activeThumbOverlay: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   /* Editorial Card */
   editorialCard: {
     backgroundColor: COLORS.cardBgIvory,
     borderRadius: 24,
     padding: 20,
+    marginHorizontal: 16,
     marginTop: 12,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
@@ -695,6 +772,7 @@ const styles = StyleSheet.create({
   /* Additional Photos Feed Section */
   additionalPhotosSection: {
     marginTop: 18,
+    marginHorizontal: 16,
     gap: 14,
   },
   sectionHeading: {
@@ -710,8 +788,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: COLORS.cardBgIvory,
-    borderWidth: 1,
-    borderColor: COLORS.cardBorder,
     ...SHADOWS.md,
   },
   feedPhotoImage: {
@@ -727,6 +803,7 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: COLORS.cardBgIvory,
     paddingVertical: 16,
+    marginHorizontal: 16,
     borderRadius: RADIUS.pill,
     marginTop: 18,
     ...SHADOWS.md,
@@ -735,5 +812,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: COLORS.textDark,
+  },
+  /* Unmatch Profile Button */
+  unmatchProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.cardBgIvory,
+    paddingVertical: 16,
+    marginHorizontal: 16,
+    borderRadius: RADIUS.pill,
+    marginTop: 12,
+    ...SHADOWS.md,
+  },
+  unmatchProfileBtnText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.danger || '#E4281F',
   },
 });

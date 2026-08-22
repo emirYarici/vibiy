@@ -90,7 +90,7 @@ export const uploadProfilePhoto = async (
   if (!isSupabaseConfigured) {
     // Demo Mode simulation delay
     await new Promise<void>((resolve) => setTimeout(resolve, 800));
-    return 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=500';
+    return base64Data.startsWith('data:') ? base64Data : `data:${mimeType};base64,${base64Data}`;
   }
 
   try {
